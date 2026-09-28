@@ -28,7 +28,7 @@ class InputSource:
     def read_frame(self) -> Tuple[bool, Optional[np.ndarray]]:
         raise NotImplementedError
 
-    def release((self) -> None:
+    def release(self) -> None:
         pass
 
     def get_info(self) -> Dict[str, Any]:
