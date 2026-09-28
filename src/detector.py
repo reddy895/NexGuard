@@ -108,6 +108,7 @@ class NexGuardDetector:
                 conf=self.confidence_threshold,
                 iou=self.iou_threshold,
                 device=self.device,
+                imgsz=getattr(self, "input_size", 640),
                 verbose=False
             )
 
