@@ -292,6 +292,14 @@ def main() -> int:
     """Main application loop."""
     config = DEFAULT_CONFIG
 
+    # Signal handlers for graceful exit
+    def signal_handler(sig, frame):
+        print("\n[INFO] Termination signal received. Gracefully exiting NexGuard...")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     # Print terminal ASCII banner
     print_banner()
 
