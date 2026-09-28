@@ -36,6 +36,15 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(restored.confidence_threshold, 0.5)
         self.assertEqual(restored.camera_index, 1)
 
+    def test_yaml_serialization(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yaml_path = f"{tmpdir}/config.yaml"
+            cfg = NexGuardConfig(confidence_threshold=0.6, camera_index=2)
+            # Test default fallback when file missing
+            missing_cfg = NexGuardConfig.load_from_yaml(f"{tmpdir}/missing.yaml")
+            self.assertEqual(missing_cfg.confidence_threshold, 0.25)
+
 
 if __name__ == "__main__":
     unittest.main()

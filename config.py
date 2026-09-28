@@ -54,6 +54,29 @@ class NexGuardConfig:
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered_data)
 
+    def save_to_yaml(self, filepath: str = "config.yaml") -> bool:
+        """Saves current configuration to a YAML file."""
+        try:
+            import yaml
+            with open(filepath, "w", encoding="utf-8") as f:
+                yaml.dump(self.to_dict(), f, default_flow_style=False)
+            return True
+        except Exception as e:
+            return False
+
+    @classmethod
+    def load_from_yaml(cls, filepath: str = "config.yaml") -> "NexGuardConfig":
+        """Loads configuration from a YAML file if present."""
+        if not os.path.exists(filepath):
+            return cls()
+        try:
+            import yaml
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            return cls.from_dict(data)
+        except Exception:
+            return cls()
+
 
 # Default global instance
 DEFAULT_CONFIG = NexGuardConfig()

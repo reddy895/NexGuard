@@ -1,0 +1,12 @@
+# NexGuard Edge AI Configuration
+model_path: yolov8n.pt
+confidence_threshold: 0.25
+iou_threshold: 0.45
+device: auto
+camera_index: 0
+input_size: 640
+frame_skip: 0
+output_dir: outputs
+log_dir: logs
+window_name: NexGuard Live Edge AI Surveillance
+refresh_rate_sec: 1.0
