@@ -19,6 +19,7 @@ from src.utils import get_device_info, generate_snapshot_filename, ensure_dir, v
 from src.detector import NexGuardDetector
 from src.display import draw_detections, draw_overlay_stats
 from src.video import InputSource, WebcamInput, VideoFileInput, ImageFileInput
+from src.event_logger import DetectionEventLogger
 
 logger = setup_logger()
 
@@ -138,6 +139,7 @@ def run_detection_loop(
     """
     ensure_dir(config.output_dir)
     window_name = config.window_name
+    event_logger = DetectionEventLogger()
 
     frame_count = 0
     total_objects_detected = 0
@@ -178,6 +180,7 @@ def run_detection_loop(
                 detections = detector.predict(frame)
                 current_obj_count = len(detections)
                 total_objects_detected += current_obj_count
+                event_logger.log_detection(frame_count, detections, fps)
 
                 # Render bounding boxes and telemetry overlay
                 annotated_frame = draw_detections(frame, detections)
