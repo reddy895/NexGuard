@@ -281,6 +281,15 @@ class AccidentDetector:
                 if self._distance_between(first.get("center", [0.0, 0.0]), person_center) < 120 or self._distance_between(second.get("center", [0.0, 0.0]), person_center) < 120:
                     people_nearby += 1
 
+        first_box = first.get("bbox", [0.0, 0.0, 0.0, 0.0])
+        second_box = second.get("bbox", [0.0, 0.0, 0.0, 0.0])
+        collision_box = [
+            min(float(first_box[0]), float(second_box[0])) - 10.0,
+            min(float(first_box[1]), float(second_box[1])) - 10.0,
+            max(float(first_box[2]), float(second_box[2])) + 10.0,
+            max(float(first_box[3]), float(second_box[3])) + 10.0,
+        ]
+
         severity = SeverityAnalyzer.compute(best_score, vehicles_involved, people_nearby)
         event = {
             "event_type": "accident",
@@ -295,6 +304,7 @@ class AccidentDetector:
             "status": "confirmed",
             "signals": best_signals,
             "evidence_path": None,
+            "collision_box": collision_box,
         }
 
         if frame is None and frame_shape is not None:
