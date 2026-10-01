@@ -42,6 +42,9 @@ models/*.engine
 
 # Application Logs & Outputs
 logs/*.log
+logs/
+outputs/
+incidents/
 outputs/*.jpg
 outputs/*.png
 outputs/*.mp4

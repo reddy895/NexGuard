@@ -7,7 +7,7 @@
 
 NexGuard is an **Edge AI CCTV Surveillance & Intelligent Incident Response Platform** engineered to provide real-time automated monitoring for urban road networks and surveillance cameras.
 
-> Default model limitation: the standard YOLOv8 COCO model detects objects such as people and vehicles but does not directly classify road accidents. NexGuard combines YOLOv8 detection and tracking with temporal accident-event analysis. A future version can use a custom accident-trained YOLOv8 model and/or a dedicated action-recognition model trained on accident datasets.
+> Default model limitation: the standard YOLOv8 COCO model detects objects such as people and vehicles but does not directly classify road accidents. NexGuard therefore combines YOLOv8 detection and tracking with temporal accident-event analysis. This is a heuristic collision detector based on multi-frame motion, proximity, and overlap signals rather than a direct accident-class prediction. A future version can use a custom accident-trained YOLOv8 model and/or a dedicated temporal action-recognition model trained on accident datasets.
 
 ---
 
@@ -73,20 +73,15 @@ python main.py
 
 ### Interactive Terminal Menu
 ```text
-============================================
-
-              NEXGUARD
-
-       EDGE AI SURVEILLANCE SYSTEM
-
-============================================
-
-Initializing system...
-
-[✓] Python environment
-[✓] YOLO engine
-[✓] Configuration
-[✓] Detection pipeline
+==================================================
+                 NEXGUARD
+        AI CCTV ACCIDENT DETECTION
+==================================================
+Model: YOLOv8n
+Tracking: ByteTrack
+Accident Detection: ENABLED
+Waiting for video input...
+==================================================
 
 Select input:
 1. Webcam
