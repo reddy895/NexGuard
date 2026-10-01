@@ -65,8 +65,10 @@ def show_initialization_checks(config: NexGuardConfig) -> bool:
     print()
     print(f"Model: {config.model_path}")
     print(f"Device: {dev_type} / {'CPU' if dev_type == 'CPU' else 'CUDA'}")
+    print(f"Max FPS: {config.max_fps}")
     print("Tracking: ByteTrack")
     print("Accident Detection: ENABLED")
+    print("Green boxes: persons & vehicles | Red: accident zone")
     print("Waiting for video input...")
     print("==================================================")
     print()
@@ -165,6 +167,8 @@ def run_detection_loop(
     start_time = time.time()
     last_stat_time = start_time
     fps = 0.0
+    max_fps = max(1, int(config.max_fps))
+    frame_interval = 1.0 / max_fps
 
     print("\n-----------------------------------------")
     print("NEXGUARD LIVE INFERENCE STARTED")
@@ -216,7 +220,7 @@ def run_detection_loop(
                     annotated_frame = draw_accident_overlay(annotated_frame, accident_event)
                 display_frame = draw_overlay_stats(
                     annotated_frame,
-                    fps=fps,
+                    fps=min(fps, float(max_fps)),
                     frame_count=frame_count,
                     object_count=current_obj_count,
                     device=detector.dev_type,
@@ -228,7 +232,11 @@ def run_detection_loop(
                 now = time.time()
                 elapsed = now - start_time
                 if elapsed > 0:
-                    fps = frame_count / elapsed
+                    fps = min(frame_count / elapsed, float(max_fps))
+
+                sleep_for = frame_interval - (time.time() - now)
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
 
                 # Periodically update terminal telemetry (controlled print, no spam)
                 if now - last_stat_time >= config.refresh_rate_sec:
