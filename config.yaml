@@ -10,7 +10,6 @@ output_dir: outputs
 log_dir: logs
 window_name: NexGuard Live Edge AI Surveillance
 refresh_rate_sec: 1.0
-max_fps: 20
 tracking_history_length: 24
 accident_candidate_threshold: 0.55
 accident_confirmation_frames: 5

@@ -21,19 +21,6 @@ def get_class_color(class_id: int) -> Tuple[int, int, int]:
     return _CLASS_COLORS[class_id]
 
 
-def draw_scene_grid(frame: np.ndarray, step: int = 80, color: Tuple[int, int, int] = (60, 60, 60), alpha: float = 0.25) -> np.ndarray:
-    """Render a subtle tactical grid over the frame for easier CCTV review."""
-    annotated = frame.copy()
-    h, w = annotated.shape[:2]
-    overlay = annotated.copy()
-    for x in range(0, w, step):
-        cv2.line(overlay, (x, 0), (x, h), color, 1)
-    for y in range(0, h, step):
-        cv2.line(overlay, (0, y), (w, y), color, 1)
-    cv2.addWeighted(overlay, alpha, annotated, 1.0 - alpha, 0, annotated)
-    return annotated
-
-
 def draw_detections(
     frame: np.ndarray,
     detections: List[Dict[str, Any]],
@@ -51,7 +38,7 @@ def draw_detections(
     - 'class_name': str
     - 'track_id': optional int for tracked objects
     """
-    annotated = draw_scene_grid(frame)
+    annotated = frame.copy()
 
     for det in detections:
         box = det.get("bbox") or det.get("box") or [0, 0, 0, 0]

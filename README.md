@@ -25,9 +25,8 @@ This repository contains **Phase 1** of NexGuard — a terminal-based Edge AI su
 - 🖥️ **Clean Terminal Interface**: Menu-driven interface for selecting webcam, video file, or image input.
 - ⚡ **YOLO Detection Engine**: Real-time object detection with dynamic class mapping (COCO object classes: person, car, motorcycle, bus, truck, etc.).
 - 🚀 **Hardware Acceleration**: Auto-detection of CUDA/GPU or host CPU runtime environment.
-- 📊 **Live Telemetry Overlay**: Real-time FPS monitoring capped to 20 FPS, frame count, object density tracking, and device mode display.
+- 📊 **Live Telemetry Overlay**: Real-time FPS monitoring, frame count, object density tracking, and device mode display.
 - 🟢 **Targeting Overlay**: Green borders for persons and vehicles, with red accident-zone highlighting and red detection labels when a collision candidate is confirmed.
-- 🧭 **Scene Grid**: Subtle grid overlay for easier CCTV review and lane/vehicle tracking in crowded scenes.
 - 🎮 **Interactive Keyboard Controls**: Pause/resume stream, save evidence snapshots, and reset telemetry statistics.
 - 📸 **Snapshot Saving**: Saves annotated evidence snapshots directly to `outputs/` directory.
 - 📝 **Structured Telemetry Logging**: Application logs (`logs/nexguard.log`) and event logs (`logs/detection_events.jsonl`).
@@ -87,8 +86,8 @@ Waiting for video input...
 
 Select input:
 1. Webcam
-2. Video file
-3. Image file
+2. Upload video file
+3. Upload image file
 4. Exit
 
 Enter option (1-4):
