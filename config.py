@@ -23,6 +23,7 @@ class NexGuardConfig:
     log_dir: str = "logs"
     window_name: str = "NexGuard Live Edge AI Surveillance"
     refresh_rate_sec: float = 1.0
+    max_fps: int = 20
     tracking_history_length: int = 20
     accident_candidate_threshold: float = 0.55
     accident_confirmation_frames: int = 5
@@ -51,6 +52,7 @@ class NexGuardConfig:
             "log_dir": self.log_dir,
             "window_name": self.window_name,
             "refresh_rate_sec": self.refresh_rate_sec,
+            "max_fps": self.max_fps,
             "tracking_history_length": self.tracking_history_length,
             "accident_candidate_threshold": self.accident_candidate_threshold,
             "accident_confirmation_frames": self.accident_confirmation_frames,
