@@ -25,11 +25,13 @@ class NexGuardDetector:
         model_path: str = "yolov8n.pt",
         confidence_threshold: float = 0.25,
         iou_threshold: float = 0.45,
-        device: str = "auto"
+        device: str = "auto",
+        input_size: int = 640,
     ):
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
+        self.input_size = int(max(128, input_size))
 
         # Device selection
         if device == "auto":
@@ -82,20 +84,33 @@ class NexGuardDetector:
         self.class_names = {0: "person", 2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
         self.is_loaded = False
 
-    def predict(self, frame: np.ndarray) -> List[Dict[str, Any]]:
-        """
-        Runs object detection inference on an RGB/BGR image frame.
+    def _normalize_results(self, results: Any) -> List[Dict[str, Any]]:
+        """Convert Ultralytics results into a clean detection payload."""
+        detections: List[Dict[str, Any]] = []
+        for r in results:
+            boxes = getattr(r, "boxes", None)
+            if boxes is None:
+                continue
+            for box in boxes:
+                xyxy = box.xyxy[0].cpu().numpy().tolist()
+                conf = float(box.conf[0].cpu().numpy())
+                cls_id = int(box.cls[0].cpu().numpy())
+                cls_name = self.class_names.get(cls_id, f"class_{cls_id}")
+                track_id = None
+                if hasattr(box, "id") and box.id is not None:
+                    track_id = int(box.id[0].cpu().numpy()) if hasattr(box.id[0], "cpu") else int(box.id[0])
+                detections.append({
+                    "bbox": [round(c, 1) for c in xyxy],
+                    "box": [round(c, 1) for c in xyxy],
+                    "confidence": round(conf, 4),
+                    "class_id": cls_id,
+                    "class_name": cls_name,
+                    "track_id": track_id,
+                })
+        return detections
 
-        Returns list of detection dictionaries:
-        [
-            {
-                "box": [x1, y1, x2, y2],
-                "confidence": 0.92,
-                "class_id": 2,
-                "class_name": "car"
-            }, ...
-        ]
-        """
+    def predict(self, frame: np.ndarray) -> List[Dict[str, Any]]:
+        """Runs object detection inference on an RGB/BGR image frame."""
         if frame is None or not isinstance(frame, np.ndarray):
             return []
 
@@ -108,35 +123,41 @@ class NexGuardDetector:
                 conf=self.confidence_threshold,
                 iou=self.iou_threshold,
                 device=self.device,
-                imgsz=getattr(self, "input_size", 640),
-                verbose=False
+                imgsz=self.input_size,
+                verbose=False,
             )
-
-            detections: List[Dict[str, Any]] = []
-
-            for r in results:
-                boxes = r.boxes
-                if boxes is None:
-                    continue
-
-                for box in boxes:
-                    xyxy = box.xyxy[0].cpu().numpy().tolist()
-                    conf = float(box.conf[0].cpu().numpy())
-                    cls_id = int(box.cls[0].cpu().numpy())
-                    cls_name = self.class_names.get(cls_id, f"class_{cls_id}")
-
-                    detections.append({
-                        "box": [round(c, 1) for c in xyxy],
-                        "confidence": round(conf, 4),
-                        "class_id": cls_id,
-                        "class_name": cls_name
-                    })
-
-            return detections
-
+            return self._normalize_results(results)
         except Exception as err:
             logger.error(f"Inference error: {err}")
             return []
+
+    def track(self, frame: np.ndarray) -> List[Dict[str, Any]]:
+        """Runs YOLO tracking and enriches each detection with a track ID when available."""
+        if frame is None or not isinstance(frame, np.ndarray):
+            return []
+
+        if not self.is_loaded or self.model is None:
+            return []
+
+        try:
+            if hasattr(self.model, "track"):
+                results = self.model.track(
+                    source=frame,
+                    conf=self.confidence_threshold,
+                    iou=self.iou_threshold,
+                    device=self.device,
+                    imgsz=self.input_size,
+                    persist=True,
+                    tracker="bytetrack.yaml",
+                    verbose=False,
+                )
+                return self._normalize_results(results)
+        except TypeError:
+            pass
+        except Exception as err:
+            logger.warning(f"Tracking fallback triggered because YOLO tracking failed: {err}")
+
+        return self.predict(frame)
 
     def get_metadata(self) -> Dict[str, Any]:
         """Exposes detector configuration and model metadata."""

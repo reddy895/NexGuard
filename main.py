@@ -17,23 +17,22 @@ from config import NexGuardConfig, DEFAULT_CONFIG
 from src.logger import setup_logger, get_logger
 from src.utils import get_device_info, generate_snapshot_filename, ensure_dir, validate_file_path
 from src.detector import NexGuardDetector
-from src.display import draw_detections, draw_overlay_stats
+from src.display import draw_detections, draw_overlay_stats, draw_accident_overlay
 from src.video import InputSource, WebcamInput, VideoFileInput, ImageFileInput
 from src.event_logger import DetectionEventLogger
+from src.accident_detector import AccidentDetector
 
 logger = setup_logger()
 
 
 def print_banner() -> None:
-    """Prints clean terminal ASCII banner."""
+    """Prints the NexGuard startup banner."""
     print()
-    print("============================================")
-    print()
-    print("              NEXGUARD")
-    print()
+    print("==================================================")
+    print("                 NEXGUARD")
     print("       EDGE AI SURVEILLANCE SYSTEM")
-    print()
-    print("============================================")
+    print("        AI CCTV ACCIDENT DETECTION")
+    print("==================================================")
     print()
 
 
@@ -58,6 +57,13 @@ def show_initialization_checks(config: NexGuardConfig) -> bool:
 
     # Check 4: Detection pipeline
     print(f"[✓] Detection pipeline initialized")
+    print()
+    print("Model: YOLOv8n")
+    print(f"Device: {dev_type} / {'CPU' if dev_type == 'CPU' else 'CUDA'}")
+    print("Tracking: ByteTrack")
+    print("Accident Detection: ENABLED")
+    print("Waiting for video input...")
+    print("==================================================")
     print()
     return True
 
@@ -140,6 +146,13 @@ def run_detection_loop(
     ensure_dir(config.output_dir)
     window_name = config.window_name
     event_logger = DetectionEventLogger()
+    accident_detector = AccidentDetector(
+        candidate_threshold=config.accident_candidate_threshold,
+        confirmation_frames=config.accident_confirmation_frames,
+        cooldown_frames=config.accident_cooldown_frames,
+        max_history=config.tracking_history_length,
+        output_dir=config.output_dir,
+    )
 
     frame_count = 0
     total_objects_detected = 0
@@ -176,14 +189,26 @@ def run_detection_loop(
                 if config.frame_skip > 0 and (frame_count % (config.frame_skip + 1) != 0):
                     continue
 
-                # Run YOLO inference
-                detections = detector.predict(frame)
-                current_obj_count = len(detections)
+                # Run YOLO inference and object tracking
+                detections = detector.track(frame) if hasattr(detector, "track") else detector.predict(frame)
+                tracked_objects = accident_detector.update_tracks(detections)
+                current_obj_count = len(tracked_objects) if tracked_objects else len(detections)
                 total_objects_detected += current_obj_count
                 event_logger.log_detection(frame_count, detections, fps)
 
+                accident_event = None
+                if source.source_type != "image":
+                    accident_event = accident_detector.analyze_frame(
+                        tracked_objects,
+                        frame_shape=frame.shape[:2],
+                        frame=frame,
+                        video_path=getattr(source, "source_path", None),
+                    )
+
                 # Render bounding boxes and telemetry overlay
-                annotated_frame = draw_detections(frame, detections)
+                annotated_frame = draw_detections(frame, tracked_objects or detections)
+                if accident_event is not None:
+                    annotated_frame = draw_accident_overlay(annotated_frame, accident_event)
                 display_frame = draw_overlay_stats(
                     annotated_frame,
                     fps=fps,

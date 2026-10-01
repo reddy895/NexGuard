@@ -1,0 +1,18 @@
+{
+  "event_type": "accident",
+  "timestamp": "2026-10-01T11:54:59.271066+00:00",
+  "severity": "LOW",
+  "confidence": 0.3321,
+  "vehicles_involved": 2,
+  "persons_nearby": 0,
+  "location": null,
+  "frame_path": null,
+  "video_path": null,
+  "status": "confirmed",
+  "signals": [
+    "proximity",
+    "closing_speed",
+    "motion_change"
+  ],
+  "evidence_path": "incidents/incident_2026-10-01_17-24-59_3229d597/accident_frame.jpg"
+}

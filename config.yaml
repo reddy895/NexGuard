@@ -10,3 +10,15 @@ output_dir: outputs
 log_dir: logs
 window_name: NexGuard Live Edge AI Surveillance
 refresh_rate_sec: 1.0
+tracking_history_length: 120
+accident_candidate_threshold: 0.55
+accident_confirmation_frames: 5
+accident_cooldown_frames: 100
+person_classes:
+  - person
+vehicle_classes:
+  - car
+  - motorcycle
+  - bus
+  - truck
+  - bicycle

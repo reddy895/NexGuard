@@ -23,6 +23,12 @@ class NexGuardConfig:
     log_dir: str = "logs"
     window_name: str = "NexGuard Live Edge AI Surveillance"
     refresh_rate_sec: float = 1.0
+    tracking_history_length: int = 20
+    accident_candidate_threshold: float = 0.55
+    accident_confirmation_frames: int = 5
+    accident_cooldown_frames: int = 100
+    person_classes: tuple = ("person",)
+    vehicle_classes: tuple = ("car", "motorcycle", "bus", "truck", "bicycle")
 
     def __post_init__(self):
         """Resolve device auto-detection and directory paths."""
@@ -45,6 +51,12 @@ class NexGuardConfig:
             "log_dir": self.log_dir,
             "window_name": self.window_name,
             "refresh_rate_sec": self.refresh_rate_sec,
+            "tracking_history_length": self.tracking_history_length,
+            "accident_candidate_threshold": self.accident_candidate_threshold,
+            "accident_confirmation_frames": self.accident_confirmation_frames,
+            "accident_cooldown_frames": self.accident_cooldown_frames,
+            "person_classes": list(self.person_classes),
+            "vehicle_classes": list(self.vehicle_classes),
         }
 
     @classmethod

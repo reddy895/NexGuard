@@ -36,30 +36,31 @@ def draw_detections(
     - 'confidence': float (0.0 to 1.0)
     - 'class_id': int
     - 'class_name': str
+    - 'track_id': optional int for tracked objects
     """
     annotated = frame.copy()
 
     for det in detections:
-        box = det.get("box", [0, 0, 0, 0])
+        box = det.get("bbox") or det.get("box") or [0, 0, 0, 0]
         conf = det.get("confidence", 0.0)
         class_id = det.get("class_id", 0)
         class_name = det.get("class_name", "object")
+        track_id = det.get("track_id")
 
         x1, y1, x2, y2 = map(int, box)
         color = get_class_color(class_id)
 
-        # Draw bounding box
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, box_thickness)
 
-        # Prepare label string
-        label = f"{class_name} {conf:.2f}"
+        if track_id is not None:
+            label = f"ID: {track_id} {class_name.upper()}"
+        else:
+            label = f"{class_name.upper()} {conf:.2f}"
 
-        # Get text size for background box
         (text_width, text_height), baseline = cv2.getTextSize(
             label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
         )
 
-        # Draw text background pill
         text_bg_y1 = max(0, y1 - text_height - 6)
         text_bg_y2 = y1
         cv2.rectangle(
@@ -70,7 +71,6 @@ def draw_detections(
             -1
         )
 
-        # Draw text text
         cv2.putText(
             annotated,
             label,
@@ -82,6 +82,26 @@ def draw_detections(
             lineType=cv2.LINE_AA
         )
 
+    return annotated
+
+
+def draw_accident_overlay(frame: np.ndarray, event: Dict[str, Any]) -> np.ndarray:
+    """Render accident candidate and confirmed overlays onto the frame."""
+    annotated = frame.copy()
+    h, w = annotated.shape[:2]
+    status = str(event.get("status", "suspected")).upper()
+    severity = str(event.get("severity", "LOW")).upper()
+    confidence = float(event.get("confidence", 0.0)) * 100.0
+
+    overlay = annotated.copy()
+    cv2.rectangle(overlay, (0, 0), (w, 90), (0, 0, 100), -1)
+    cv2.addWeighted(overlay, 0.75, annotated, 0.25, 0, annotated)
+
+    label = "⚠ ACCIDENT SUSPECTED" if status != "CONFIRMED" else "🚨 ACCIDENT DETECTED"
+    color = (0, 165, 255) if status != "CONFIRMED" else (0, 0, 255)
+    cv2.putText(annotated, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
+    cv2.putText(annotated, f"SEVERITY: {severity}", (12, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.putText(annotated, f"CONFIDENCE: {confidence:.0f}%", (12, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
     return annotated
 
 
