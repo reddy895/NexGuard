@@ -42,7 +42,12 @@ def build_detection_record(
 
 
 class AccidentDetector:
-    """Build a temporal accident-analysis layer over tracked YOLO detections."""
+    """Build a temporal accident-analysis layer over tracked YOLO detections.
+
+    The base YOLOv8 COCO model detects people and vehicles, but it does not directly
+    classify "accident" events. NexGuard therefore combines object detection,
+    tracking, and multiple-frame motion/spatial signals to infer likely collisions.
+    """
 
     PERSON_CLASSES = ("person",)
     VEHICLE_CLASSES = ("car", "motorcycle", "bus", "truck", "bicycle")
