@@ -21,6 +21,19 @@ def get_class_color(class_id: int) -> Tuple[int, int, int]:
     return _CLASS_COLORS[class_id]
 
 
+def draw_scene_grid(frame: np.ndarray, step: int = 80, color: Tuple[int, int, int] = (60, 60, 60), alpha: float = 0.25) -> np.ndarray:
+    """Render a subtle tactical grid over the frame for easier CCTV review."""
+    annotated = frame.copy()
+    h, w = annotated.shape[:2]
+    overlay = annotated.copy()
+    for x in range(0, w, step):
+        cv2.line(overlay, (x, 0), (x, h), color, 1)
+    for y in range(0, h, step):
+        cv2.line(overlay, (0, y), (w, y), color, 1)
+    cv2.addWeighted(overlay, alpha, annotated, 1.0 - alpha, 0, annotated)
+    return annotated
+
+
 def draw_detections(
     frame: np.ndarray,
     detections: List[Dict[str, Any]],
@@ -38,17 +51,20 @@ def draw_detections(
     - 'class_name': str
     - 'track_id': optional int for tracked objects
     """
-    annotated = frame.copy()
+    annotated = draw_scene_grid(frame)
 
     for det in detections:
         box = det.get("bbox") or det.get("box") or [0, 0, 0, 0]
         conf = det.get("confidence", 0.0)
         class_id = det.get("class_id", 0)
-        class_name = det.get("class_name", "object")
+        class_name = str(det.get("class_name", "object")).lower()
         track_id = det.get("track_id")
 
         x1, y1, x2, y2 = map(int, box)
-        color = get_class_color(class_id)
+        if class_name in {"person", "car", "motorcycle", "bus", "truck", "bicycle"}:
+            color = (0, 255, 0)
+        else:
+            color = (0, 180, 255)
 
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, box_thickness)
 
@@ -102,6 +118,12 @@ def draw_accident_overlay(frame: np.ndarray, event: Dict[str, Any]) -> np.ndarra
     cv2.putText(annotated, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
     cv2.putText(annotated, f"SEVERITY: {severity}", (12, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
     cv2.putText(annotated, f"CONFIDENCE: {confidence:.0f}%", (12, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+
+    collision_box = event.get("collision_box")
+    if collision_box:
+        x1, y1, x2, y2 = map(int, collision_box)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 3)
+        cv2.putText(annotated, "ACCIDENT ZONE", (x1 + 8, max(20, y1 - 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
     return annotated
 
 
