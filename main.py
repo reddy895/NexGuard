@@ -33,6 +33,11 @@ def print_banner() -> None:
     print("       EDGE AI SURVEILLANCE SYSTEM")
     print("        AI CCTV ACCIDENT DETECTION")
     print("==================================================")
+    print("Model: YOLOv8n")
+    print("Tracking: ByteTrack")
+    print("Accident Detection: ENABLED")
+    print("Waiting for video input...")
+    print("==================================================")
     print()
 
 
@@ -58,7 +63,7 @@ def show_initialization_checks(config: NexGuardConfig) -> bool:
     # Check 4: Detection pipeline
     print(f"[✓] Detection pipeline initialized")
     print()
-    print("Model: YOLOv8n")
+    print(f"Model: {config.model_path}")
     print(f"Device: {dev_type} / {'CPU' if dev_type == 'CPU' else 'CUDA'}")
     print("Tracking: ByteTrack")
     print("Accident Detection: ENABLED")
