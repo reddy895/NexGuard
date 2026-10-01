@@ -122,8 +122,9 @@ def draw_accident_overlay(frame: np.ndarray, event: Dict[str, Any]) -> np.ndarra
     collision_box = event.get("collision_box")
     if collision_box:
         x1, y1, x2, y2 = map(int, collision_box)
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 3)
-        cv2.putText(annotated, "ACCIDENT ZONE", (x1 + 8, max(20, y1 - 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 4)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 1, cv2.LINE_4)
+        cv2.putText(annotated, "ACCIDENT ZONE", (max(8, x1 + 8), max(20, y1 - 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
     return annotated
 
 
