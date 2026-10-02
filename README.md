@@ -215,3 +215,6 @@ NexGuard is designed modularly to support multi-phase expansion:
 ---
 
 *NexGuard Edge AI Surveillance System — Phase 1 Release*
+
+**LICENSED BY PRAVEEN REDDY**
+  *MIT and APACHE 2.0*
