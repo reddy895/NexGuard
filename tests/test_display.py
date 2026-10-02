@@ -4,7 +4,7 @@ Tests for NexGuard Display Module
 
 import unittest
 import numpy as np
-from src.display import get_class_color, draw_detections, draw_overlay_stats
+from src.display import get_class_color, draw_detections, draw_grid, draw_overlay_stats
 
 
 class TestDisplay(unittest.TestCase):
@@ -30,6 +30,13 @@ class TestDisplay(unittest.TestCase):
         self.assertEqual(annotated.shape, frame.shape)
         # Ensure image frame was modified (pixels non-zero)
         self.assertTrue(np.any(annotated > 0))
+
+    def test_draw_grid(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        annotated = draw_grid(frame)
+        self.assertEqual(annotated.shape, frame.shape)
+        self.assertTrue(np.any(annotated[:, 213, :] > 0))
+        self.assertTrue(np.any(annotated[160, :, :] > 0))
 
     def test_draw_overlay_stats(self):
         frame = np.zeros((480, 640, 3), dtype=np.uint8)

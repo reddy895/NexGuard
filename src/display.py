@@ -21,6 +21,22 @@ def get_class_color(class_id: int) -> Tuple[int, int, int]:
     return _CLASS_COLORS[class_id]
 
 
+def draw_grid(frame: np.ndarray, divisions: int = 3) -> np.ndarray:
+    """Draw a subtle grid over a frame to make live scene regions easier to read."""
+    annotated = frame.copy()
+    height, width = annotated.shape[:2]
+    grid = annotated.copy()
+    color = (70, 150, 155)
+
+    for division in range(1, divisions):
+        x = width * division // divisions
+        y = height * division // divisions
+        cv2.line(grid, (x, 0), (x, height - 1), color, 1, cv2.LINE_AA)
+        cv2.line(grid, (0, y), (width - 1, y), color, 1, cv2.LINE_AA)
+
+    return cv2.addWeighted(grid, 0.45, annotated, 0.55, 0)
+
+
 def draw_detections(
     frame: np.ndarray,
     detections: List[Dict[str, Any]],

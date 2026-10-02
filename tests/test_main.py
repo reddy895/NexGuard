@@ -5,11 +5,27 @@ Tests for NexGuard Main Application Functions
 import unittest
 from io import StringIO
 import sys
+import subprocess
+from unittest.mock import patch
 from config import NexGuardConfig
-from main import print_banner, show_initialization_checks
+from main import choose_media_file, print_banner, show_initialization_checks
 
 
 class TestMain(unittest.TestCase):
+
+    def test_choose_media_file_uses_zenity(self):
+        result = subprocess.CompletedProcess(
+            args=["zenity"], returncode=0, stdout="/tmp/traffic.mp4\n", stderr=""
+        )
+        with patch("main.shutil.which", return_value="/usr/bin/zenity"), patch(
+            "main.subprocess.run", return_value=result
+        ) as run_picker:
+            selected = choose_media_file("video")
+
+        self.assertEqual(selected, "/tmp/traffic.mp4")
+        command = run_picker.call_args.args[0]
+        self.assertIn("--file-selection", command)
+        self.assertTrue(any("*.mp4" in argument for argument in command))
 
     def test_print_banner(self):
         saved_stdout = sys.stdout

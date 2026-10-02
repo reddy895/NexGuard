@@ -26,6 +26,8 @@ This repository contains **Phase 1** of NexGuard — a terminal-based Edge AI su
 - ⚡ **YOLO Detection Engine**: Real-time object detection with dynamic class mapping (COCO object classes: person, car, motorcycle, bus, truck, etc.).
 - 🚀 **Hardware Acceleration**: Auto-detection of CUDA/GPU or host CPU runtime environment.
 - 📊 **Live Telemetry Overlay**: Real-time FPS monitoring, frame count, object density tracking, and device mode display.
+- 🎯 **Live Grid Overlay**: A 3x3 grid remains visible over the active detection view.
+- ⏱️ **FPS Limit**: Inference is paced to a maximum of 20 frames per second.
 - 🟢 **Targeting Overlay**: Green borders for persons and vehicles, with red accident-zone highlighting and red detection labels when a collision candidate is confirmed.
 - 🎮 **Interactive Keyboard Controls**: Pause/resume stream, save evidence snapshots, and reset telemetry statistics.
 - 📸 **Snapshot Saving**: Saves annotated evidence snapshots directly to `outputs/` directory.
@@ -99,16 +101,10 @@ Enter option (1-4):
    Select option `1`. NexGuard initializes the primary camera device (`index 0`).
 
 2. **Video File Inference**:  
-   Select option `2`. Enter path to video file or press `Enter` to run sample video:
-   ```text
-   Enter video file path [Press Enter for default: 'assets/sample/surveillance_sample.mp4']:
-   ```
+   Select option `2`, then choose a video in the file picker. The picker opens in `assets/sample`.
 
 3. **Static Image Inference**:  
-   Select option `3`. Enter path to image file or press `Enter` to run sample traffic image:
-   ```text
-   Enter image file path [Press Enter for default: 'assets/sample/traffic_sample.jpg']:
-   ```
+   Select option `3`, then choose an image in the file picker. The picker opens in `assets/sample`.
 
 ---
 
@@ -137,6 +133,7 @@ device: auto           # Options: 'auto', 'cuda', 'cpu'
 camera_index: 0
 input_size: 640
 frame_skip: 0
+target_fps: 20.0
 output_dir: outputs
 log_dir: logs
 refresh_rate_sec: 1.0

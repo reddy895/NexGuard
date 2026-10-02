@@ -13,6 +13,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.model_path, "yolov8n.pt")
         self.assertEqual(cfg.confidence_threshold, 0.25)
         self.assertEqual(cfg.camera_index, 0)
+        self.assertEqual(cfg.target_fps, 20.0)
         self.assertIn(cfg.device, ["cpu", "cuda"])
 
     def test_threshold_clamping(self):
@@ -30,11 +31,13 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(d["model_path"], "models/yolov8s.pt")
         self.assertEqual(d["confidence_threshold"], 0.5)
         self.assertEqual(d["camera_index"], 1)
+        self.assertEqual(d["target_fps"], 20.0)
 
         restored = NexGuardConfig.from_dict(d)
         self.assertEqual(restored.model_path, "models/yolov8s.pt")
         self.assertEqual(restored.confidence_threshold, 0.5)
         self.assertEqual(restored.camera_index, 1)
+        self.assertEqual(restored.target_fps, 20.0)
 
     def test_yaml_serialization(self):
         import tempfile

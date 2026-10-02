@@ -7,6 +7,8 @@ import sys
 import time
 import os
 import signal
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -17,12 +19,57 @@ from config import NexGuardConfig, DEFAULT_CONFIG
 from src.logger import setup_logger, get_logger
 from src.utils import get_device_info, generate_snapshot_filename, ensure_dir, validate_file_path
 from src.detector import NexGuardDetector
-from src.display import draw_detections, draw_overlay_stats, draw_accident_overlay
+from src.display import draw_detections, draw_grid, draw_overlay_stats, draw_accident_overlay
 from src.video import InputSource, WebcamInput, VideoFileInput, ImageFileInput
 from src.event_logger import DetectionEventLogger
 from src.accident_detector import AccidentDetector
 
 logger = setup_logger()
+
+
+def choose_media_file(media_type: str) -> str:
+    """Open a native file picker for a video or image input."""
+    filetypes = {
+        "video": ("Video files", "*.mp4 *.avi *.mov *.mkv *.webm *.m4v"),
+        "image": ("Image files", "*.jpg *.jpeg *.png *.bmp *.webp *.tif *.tiff"),
+    }
+    label, patterns = filetypes[media_type]
+    initial_dir = Path("assets/sample").resolve()
+    zenity = shutil.which("zenity")
+
+    if zenity:
+        result = subprocess.run(
+            [
+                zenity,
+                "--file-selection",
+                f"--title=Select {media_type} file",
+                f"--filename={initial_dir}{os.sep}",
+                f"--file-filter={label} | {patterns}",
+                "--file-filter=All files | *",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 1:
+            return ""
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "Zenity file picker failed")
+        return result.stdout.strip()
+
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        return filedialog.askopenfilename(
+            title=f"Select {media_type} file",
+            initialdir=str(initial_dir),
+            filetypes=[(label, patterns), ("All files", "*.*")],
+        )
+    finally:
+        root.destroy()
 
 
 def print_banner() -> None:
@@ -100,11 +147,14 @@ def prompt_input_selection(config: NexGuardConfig) -> Optional[InputSource]:
             return source
 
         elif choice == "2":
-            sample_vid = "assets/sample/surveillance_sample.mp4"
-            hint = f" [Press Enter for default: '{sample_vid}']" if validate_file_path(sample_vid) else ""
-            video_path = input(f"Enter video file path{hint}: ").strip()
-            if not video_path and validate_file_path(sample_vid):
-                video_path = sample_vid
+            try:
+                video_path = choose_media_file("video")
+            except Exception as error:
+                print(f"[ERROR] Could not open file picker: {error}\n")
+                continue
+            if not video_path:
+                print("[INFO] Video selection cancelled.\n")
+                continue
 
             if not validate_file_path(video_path):
                 print(f"[ERROR] Video file path '{video_path}' does not exist or is invalid.\n")
@@ -117,11 +167,14 @@ def prompt_input_selection(config: NexGuardConfig) -> Optional[InputSource]:
             return source
 
         elif choice == "3":
-            sample_img = "assets/sample/traffic_sample.jpg"
-            hint = f" [Press Enter for default: '{sample_img}']" if validate_file_path(sample_img) else ""
-            img_path = input(f"Enter image file path{hint}: ").strip()
-            if not img_path and validate_file_path(sample_img):
-                img_path = sample_img
+            try:
+                img_path = choose_media_file("image")
+            except Exception as error:
+                print(f"[ERROR] Could not open file picker: {error}\n")
+                continue
+            if not img_path:
+                print("[INFO] Image selection cancelled.\n")
+                continue
 
             if not validate_file_path(img_path):
                 print(f"[ERROR] Image file path '{img_path}' does not exist or is invalid.\n")
@@ -166,6 +219,8 @@ def run_detection_loop(
     start_time = time.time()
     last_stat_time = start_time
     fps = 0.0
+    next_frame_time = time.monotonic()
+    frame_interval = 1.0 / max(1.0, float(config.target_fps))
 
     print("\n-----------------------------------------")
     print("NEXGUARD LIVE INFERENCE STARTED")
@@ -181,6 +236,11 @@ def run_detection_loop(
     try:
         while source.is_opened:
             if not paused:
+                now = time.monotonic()
+                if now < next_frame_time:
+                    time.sleep(next_frame_time - now)
+                next_frame_time = time.monotonic() + frame_interval
+
                 ret, frame = source.read_frame()
                 if not ret or frame is None:
                     if source.source_type == "video":
@@ -213,6 +273,7 @@ def run_detection_loop(
 
                 # Render bounding boxes and telemetry overlay
                 annotated_frame = draw_detections(frame, tracked_objects or detections)
+                annotated_frame = draw_grid(annotated_frame)
                 if accident_event is not None:
                     annotated_frame = draw_accident_overlay(annotated_frame, accident_event)
                 display_frame = draw_overlay_stats(

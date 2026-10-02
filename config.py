@@ -19,6 +19,7 @@ class NexGuardConfig:
     camera_index: int = 0
     input_size: int = 640
     frame_skip: int = 0
+    target_fps: float = 20.0
     output_dir: str = "outputs"
     log_dir: str = "logs"
     window_name: str = "NexGuard Live Edge AI Surveillance"
@@ -47,6 +48,7 @@ class NexGuardConfig:
             "camera_index": self.camera_index,
             "input_size": self.input_size,
             "frame_skip": self.frame_skip,
+            "target_fps": self.target_fps,
             "output_dir": self.output_dir,
             "log_dir": self.log_dir,
             "window_name": self.window_name,
