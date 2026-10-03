@@ -1,172 +1,158 @@
 """
-NexGuard YOLO Detector Module
-Handles object detection model loading, hardware acceleration, inference, confidence filtering,
-and dynamic class map resolution.
+NexGuard YOLO Object Detection Module
+Provides unified YOLOv8 inference wrapper with configurable confidence threshold,
+CUDA/CPU hardware acceleration detection, and optional custom accident model integration.
 """
 
 import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
-from src.logger import get_logger
-from src.utils import detect_device, get_device_info
+import torch
+from ultralytics import YOLO
 
-logger = get_logger()
+from config import config
+from utils.logger import logger
+from utils.geometry import get_bbox_center
 
 
-class NexGuardDetector:
-    """
-    Object detection engine encapsulating Ultralytics YOLO model inference.
-    Supports auto device selection, threshold filtering, and dynamic class metadata.
-    """
+class DetectionObject:
+    """Represents a single object detected by YOLO."""
+
+    def __init__(self, bbox: List[float], confidence: float, class_id: int, class_name: str):
+        self.bbox: List[float] = [float(b) for b in bbox]
+        self.confidence: float = float(confidence)
+        self.class_id: int = int(class_id)
+        self.class_name: str = str(class_name).lower()
+        self.center: Tuple[float, float] = get_bbox_center(self.bbox)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "bbox": self.bbox,
+            "confidence": round(self.confidence, 4),
+            "class_id": self.class_id,
+            "class_name": self.class_name,
+            "center": self.center
+        }
+
+
+class YOLOObjectDetector:
+    """YOLOv8 Detection Engine supporting Base and Optional Custom Accident Models."""
 
     def __init__(
         self,
-        model_path: str = "yolov8n.pt",
-        confidence_threshold: float = 0.25,
-        iou_threshold: float = 0.45,
-        device: str = "auto",
-        input_size: int = 640,
+        base_model_path: Optional[str] = None,
+        custom_model_path: Optional[str] = None,
+        confidence_threshold: Optional[float] = None,
+        device: Optional[str] = None
     ):
-        self.model_path = model_path
-        self.confidence_threshold = confidence_threshold
-        self.iou_threshold = iou_threshold
-        self.input_size = int(max(128, input_size))
+        self.conf_threshold = confidence_threshold or config.yolo_confidence
+        self.device = device or config.device
+        if self.device == "auto":
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # Device selection
-        if device == "auto":
-            self.device = detect_device()
-        else:
-            self.device = device.lower()
+        # Resolve Base Model Path
+        self.base_model_path = Path(base_model_path or config.base_model_path)
+        if not self.base_model_path.exists():
+            # Fallback to local root model or download default yolov8n.pt
+            alt_base = Path("yolov8n.pt")
+            if alt_base.exists():
+                self.base_model_path = alt_base
 
-        self.dev_type, self.dev_name = get_device_info()
-        self.model = None
-        self.class_names: Dict[int, str] = {}
-        self.is_loaded = False
+        self.model_name = self.base_model_path.name
+        self.base_model: Optional[YOLO] = None
+        self.custom_model: Optional[YOLO] = None
+        self.custom_model_loaded = False
+        self.ready = False
 
-        self._load_model()
+        self._load_models(custom_model_path or config.custom_model_path)
 
-    def _load_model(self) -> None:
-        """Loads the Ultralytics YOLO model engine."""
-        logger.info(f"Loading YOLO detection model '{self.model_path}' on device '{self.device}'...")
-
+    def _load_models(self, custom_model_path: str):
+        """Loads base YOLO model and optionally custom accident model."""
         try:
-            from ultralytics import YOLO
-            self.model = YOLO(self.model_path)
-            
-            # Transfer model to device if specified
-            if hasattr(self.model, "to"):
-                try:
-                    self.model.to(self.device)
-                except Exception as dev_err:
-                    logger.warning(f"Could not move model to {self.device}: {dev_err}. Falling back to default.")
-
-            # Load dynamic class names mapping
-            if hasattr(self.model, "names") and self.model.names:
-                self.class_names = {int(k): str(v) for k, v in self.model.names.items()}
-            else:
-                # Default COCO sample map fallback
-                self.class_names = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
-
-            self.is_loaded = True
-            logger.info(f"[✓] YOLO Model successfully loaded with {len(self.class_names)} target classes.")
-
-        except ImportError:
-            logger.error("[ERROR] Ultralytics module not installed. Running detector in fallback mode.")
-            self._setup_fallback()
+            model_target = str(self.base_model_path) if self.base_model_path.exists() else "yolov8n.pt"
+            logger.info(f"Loading Base YOLO model: {model_target} (Device: {self.device})")
+            self.base_model = YOLO(model_target)
+            self.ready = True
         except Exception as e:
-            logger.error(f"[ERROR] Failed to load model '{self.model_path}': {e}. Using fallback engine.")
-            self._setup_fallback()
+            logger.error(f"Failed to load Base YOLO model: {e}")
+            self.ready = False
 
-    def _setup_fallback(self) -> None:
-        """Configures a lightweight fallback engine if PyTorch/Ultralytics is unavailable."""
-        self.model = None
-        self.class_names = {0: "person", 2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
-        self.is_loaded = False
+        # Load Custom Accident Model if present
+        custom_path = Path(custom_model_path)
+        if custom_path.exists() and custom_path.is_file():
+            try:
+                logger.info(f"Loading Custom Accident YOLO model: {custom_path}")
+                self.custom_model = YOLO(str(custom_path))
+                self.custom_model_loaded = True
+            except Exception as e:
+                logger.warning(f"Failed to load custom accident model at {custom_path}: {e}")
+                self.custom_model_loaded = False
 
-    def _normalize_results(self, results: Any) -> List[Dict[str, Any]]:
-        """Convert Ultralytics results into a clean detection payload."""
-        detections: List[Dict[str, Any]] = []
-        for r in results:
-            boxes = getattr(r, "boxes", None)
-            if boxes is None:
-                continue
-            for box in boxes:
-                xyxy = box.xyxy[0].cpu().numpy().tolist()
-                conf = float(box.conf[0].cpu().numpy())
-                cls_id = int(box.cls[0].cpu().numpy())
-                cls_name = self.class_names.get(cls_id, f"class_{cls_id}")
-                track_id = None
-                if hasattr(box, "id") and box.id is not None:
-                    track_id = int(box.id[0].cpu().numpy()) if hasattr(box.id[0], "cpu") else int(box.id[0])
-                detections.append({
-                    "bbox": [round(c, 1) for c in xyxy],
-                    "box": [round(c, 1) for c in xyxy],
-                    "confidence": round(conf, 4),
-                    "class_id": cls_id,
-                    "class_name": cls_name,
-                    "track_id": track_id,
-                })
-        return detections
-
-    def predict(self, frame: np.ndarray) -> List[Dict[str, Any]]:
-        """Runs object detection inference on an RGB/BGR image frame."""
-        if frame is None or not isinstance(frame, np.ndarray):
+    def detect(self, frame: np.ndarray, imgsz: Optional[int] = None) -> List[DetectionObject]:
+        """Runs YOLO object detection on frame and returns filtered DetectionObjects."""
+        if not self.ready or self.base_model is None or frame is None:
             return []
 
-        if not self.is_loaded or self.model is None:
-            return []
+        img_size = imgsz or config.inference_size
+        results = self.base_model.predict(
+            source=frame,
+            conf=self.conf_threshold,
+            device=self.device,
+            imgsz=img_size,
+            verbose=False
+        )
 
-        try:
-            results = self.model.predict(
-                source=frame,
-                conf=self.confidence_threshold,
-                iou=self.iou_threshold,
-                device=self.device,
-                imgsz=self.input_size,
-                verbose=False,
-            )
-            return self._normalize_results(results)
-        except Exception as err:
-            logger.error(f"Inference error: {err}")
-            return []
+        detections: List[DetectionObject] = []
+        if not results:
+            return detections
 
-    def track(self, frame: np.ndarray) -> List[Dict[str, Any]]:
-        """Runs YOLO tracking and enriches each detection with a track ID when available."""
-        if frame is None or not isinstance(frame, np.ndarray):
-            return []
+        res = results[0]
+        if res.boxes is None or len(res.boxes) == 0:
+            return detections
 
-        if not self.is_loaded or self.model is None:
-            return []
+        names = res.names
+        for box in res.boxes:
+            xyxy = box.xyxy[0].cpu().numpy().tolist()
+            conf = float(box.conf[0].cpu().numpy())
+            cls_id = int(box.cls[0].cpu().numpy())
+            cls_name = names.get(cls_id, f"cls_{cls_id}")
 
-        try:
-            if hasattr(self.model, "track"):
-                results = self.model.track(
+            # Include target vehicles and persons
+            target_classes = set(config.person_classes) | set(config.vehicle_classes) | {"accident"}
+            if cls_name.lower() in target_classes:
+                detections.append(DetectionObject(
+                    bbox=xyxy,
+                    confidence=conf,
+                    class_id=cls_id,
+                    class_name=cls_name
+                ))
+
+        # Run custom accident model inference if available
+        if self.custom_model_loaded and self.custom_model is not None:
+            try:
+                custom_results = self.custom_model.predict(
                     source=frame,
-                    conf=self.confidence_threshold,
-                    iou=self.iou_threshold,
+                    conf=self.conf_threshold,
                     device=self.device,
-                    imgsz=self.input_size,
-                    persist=True,
-                    tracker="bytetrack.yaml",
-                    verbose=False,
+                    imgsz=img_size,
+                    verbose=False
                 )
-                return self._normalize_results(results)
-        except TypeError:
-            pass
-        except Exception as err:
-            logger.warning(f"Tracking fallback triggered because YOLO tracking failed: {err}")
+                if custom_results and custom_results[0].boxes is not None:
+                    c_res = custom_results[0]
+                    c_names = c_res.names
+                    for box in c_res.boxes:
+                        xyxy = box.xyxy[0].cpu().numpy().tolist()
+                        conf = float(box.conf[0].cpu().numpy())
+                        cls_id = int(box.cls[0].cpu().numpy())
+                        cls_name = c_names.get(cls_id, "accident")
+                        detections.append(DetectionObject(
+                            bbox=xyxy,
+                            confidence=conf,
+                            class_id=cls_id,
+                            class_name="accident"
+                        ))
+            except Exception as e:
+                logger.warning(f"Custom model inference error: {e}")
 
-        return self.predict(frame)
-
-    def get_metadata(self) -> Dict[str, Any]:
-        """Exposes detector configuration and model metadata."""
-        return {
-            "model_path": self.model_path,
-            "device": self.device,
-            "device_name": self.dev_name,
-            "confidence_threshold": self.confidence_threshold,
-            "iou_threshold": self.iou_threshold,
-            "class_count": len(self.class_names),
-            "is_loaded": self.is_loaded
-        }
+        return detections
