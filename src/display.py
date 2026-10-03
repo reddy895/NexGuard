@@ -1,187 +1,141 @@
 """
-NexGuard Display and Visualization Module
-Renders bounding boxes, confidence labels, class colors, and live telemetry overlays.
+NexGuard Visual Display & HUD Rendering Module
+Renders bounding boxes, involved vehicle RED highlighting, visual overlays,
+FPS counters, status headers, and alert banners onto video frames.
 """
 
+from typing import List, Dict, Tuple, Optional, Any
 import cv2
 import numpy as np
-from typing import List, Dict, Tuple, Any, Optional
 
-# Generate distinct RGB colors for class IDs
-_CLASS_COLORS: Dict[int, Tuple[int, int, int]] = {}
-
-
-def get_class_color(class_id: int) -> Tuple[int, int, int]:
-    """Generates or retrieves a consistent BGR color for a given class ID."""
-    if class_id not in _CLASS_COLORS:
-        # Use pseudo-random color mapping based on class_id
-        np.random.seed(class_id * 37 + 17)
-        color = tuple(int(c) for c in np.random.randint(50, 255, size=3))
-        _CLASS_COLORS[class_id] = (color[0], color[1], color[2])  # BGR
-    return _CLASS_COLORS[class_id]
+from config import config
+from src.detector import DetectionObject
+from src.tracker import TrackedObject
+from src.accident_detector import AccidentAnalysisResult, AccidentState
+from src.severity_engine import SeverityEvaluation
 
 
-def draw_grid(frame: np.ndarray, divisions: int = 3) -> np.ndarray:
-    """Draw a subtle grid over a frame to make live scene regions easier to read."""
-    annotated = frame.copy()
-    height, width = annotated.shape[:2]
-    grid = annotated.copy()
-    color = (70, 150, 155)
+class DisplayRenderer:
+    """Renders NexGuard visual elements and overlays onto OpenCV frames."""
 
-    for division in range(1, divisions):
-        x = width * division // divisions
-        y = height * division // divisions
-        cv2.line(grid, (x, 0), (x, height - 1), color, 1, cv2.LINE_AA)
-        cv2.line(grid, (0, y), (width - 1, y), color, 1, cv2.LINE_AA)
+    def __init__(self, window_name: str = None):
+        self.window_name = window_name or config.window_name
 
-    return cv2.addWeighted(grid, 0.45, annotated, 0.55, 0)
+    def init_window(self):
+        """Initializes OpenCV GUI window."""
+        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.window_name, config.display_width, config.display_height)
 
+    def draw_hud(
+        self,
+        frame: np.ndarray,
+        detections: List[DetectionObject],
+        tracked_objects: List[TrackedObject],
+        analysis: AccidentAnalysisResult,
+        severity: SeverityEvaluation,
+        fps: float,
+        model_name: str,
+        whatsapp_status: str,
+        incident_id: Optional[str] = None
+    ) -> np.ndarray:
+        """Draws bounding boxes, RED accident highlights, and top/bottom overlays onto frame."""
+        if frame is None:
+            return frame
 
-def draw_detections(
-    frame: np.ndarray,
-    detections: List[Dict[str, Any]],
-    box_thickness: int = 2,
-    font_scale: float = 0.5,
-    font_thickness: int = 1
-) -> np.ndarray:
-    """
-    Annotates a video/image frame with bounding boxes, class names, and confidence scores.
+        annotated = frame.copy()
+        h, w = annotated.shape[:2]
 
-    Each detection dictionary contains:
-    - 'box': [x1, y1, x2, y2]
-    - 'confidence': float (0.0 to 1.0)
-    - 'class_id': int
-    - 'class_name': str
-    - 'track_id': optional int for tracked objects
-    """
-    annotated = frame.copy()
+        involved_set = set(analysis.involved_track_ids) if analysis.is_accident else set()
 
-    for det in detections:
-        box = det.get("bbox") or det.get("box") or [0, 0, 0, 0]
-        conf = det.get("confidence", 0.0)
-        class_id = det.get("class_id", 0)
-        class_name = str(det.get("class_name", "object")).lower()
-        track_id = det.get("track_id")
+        # Step 1: Draw Bounding Boxes
+        for track in tracked_objects:
+            x1, y1, x2, y2 = [int(v) for v in track.bbox]
+            is_involved = (track.track_id in involved_set)
 
-        x1, y1, x2, y2 = map(int, box)
-        if class_name in {"person", "car", "motorcycle", "bus", "truck", "bicycle"}:
-            color = (0, 255, 0)
+            if is_involved:
+                # ACCIDENT VEHICLE: STRONG RED (BGR: 0, 0, 255)
+                color = (0, 0, 255)
+                thickness = 4
+                label = f"{track.class_name.upper()} #{track.track_id} ACCIDENT"
+            elif track.class_name == "person":
+                color = (255, 144, 30)  # Bright Blue/Cyan
+                thickness = 2
+                label = f"PERSON #{track.track_id}"
+            elif track.class_name in ["car", "motorcycle"]:
+                color = (0, 230, 0)  # Green
+                thickness = 2
+                label = f"{track.class_name.upper()} #{track.track_id}"
+            elif track.class_name in ["bus", "truck"]:
+                color = (0, 215, 255)  # Gold/Yellow
+                thickness = 2
+                label = f"{track.class_name.upper()} #{track.track_id}"
+            else:
+                color = (200, 200, 200)
+                thickness = 2
+                label = f"{track.class_name.upper()} #{track.track_id}"
+
+            # Draw bounding box
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, thickness)
+
+            # Label banner
+            (lbl_w, lbl_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+            cv2.rectangle(annotated, (x1, max(0, y1 - lbl_h - 6)), (x1 + lbl_w + 6, max(lbl_h + 6, y1)), color, -1)
+            cv2.putText(
+                annotated,
+                label,
+                (x1 + 3, max(lbl_h + 2, y1 - 3)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 255) if is_involved else (0, 0, 0),
+                2
+            )
+
+            # Draw track history trail
+            if len(track.center_history) > 1:
+                pts = np.array([(int(cx), int(cy)) for cx, cy in track.center_history], np.int32)
+                cv2.polylines(annotated, [pts], False, color, 2)
+
+        # Step 2: Draw Top Overlay Header
+        header_bg = np.zeros((55, w, 3), dtype=np.uint8)
+        alpha = 0.65
+        annotated[0:55, 0:w] = cv2.addWeighted(annotated[0:55, 0:w], 1 - alpha, header_bg, alpha, 0)
+
+        # Left Header Text
+        title_text = "NEXGUARD LIVE EDGE AI"
+        cv2.putText(annotated, title_text, (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 255), 2)
+
+        # Right Header Info
+        info_text = f"FPS: {fps:.1f} | MODEL: {model_name} | DEVICE: {config.device.upper()}"
+        (iw, _), _ = cv2.getTextSize(info_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+        cv2.putText(annotated, info_text, (w - iw - 15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+
+        # Step 3: Draw Bottom Status Banner
+        banner_h = 70
+        banner_bg = np.zeros((banner_h, w, 3), dtype=np.uint8)
+        
+        if analysis.is_accident:
+            # RED banner for active accident
+            banner_bg[:, :] = (0, 0, 180)
+            status_str = "STATUS: ACCIDENT DETECTED"
+            status_color = (255, 255, 255)
         else:
-            color = (0, 180, 255)
+            banner_bg[:, :] = (30, 30, 30)
+            status_str = f"STATUS: {analysis.state.value}"
+            status_color = (0, 255, 0)
 
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, box_thickness)
+        annotated[h - banner_h:h, 0:w] = cv2.addWeighted(annotated[h - banner_h:h, 0:w], 0.3, banner_bg, 0.7, 0)
 
-        if track_id is not None:
-            label = f"ID: {track_id} {class_name.upper()}"
+        # Status text line 1
+        cv2.putText(annotated, status_str, (15, h - 42), cv2.FONT_HERSHEY_SIMPLEX, 0.75, status_color, 2)
+
+        # Status text line 2 (Severity, Involved vehicles, Person involvement)
+        if analysis.is_accident:
+            inv_str = ", ".join([f"#{tid}" for tid in analysis.involved_track_ids]) or "N/A"
+            person_str = f"DETECTED ({analysis.people_near_accident})" if analysis.people_near_accident > 0 else "NONE"
+            details = f"SEVERITY: {severity.level} | INVOLVED: {inv_str} | PERSON INVOLVEMENT: {person_str} | WA: {whatsapp_status}"
+            cv2.putText(annotated, details, (15, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
         else:
-            label = f"{class_name.upper()} {conf:.2f}"
+            details = f"SEVERITY: {severity.level} | WHATSAPP: {whatsapp_status} | MODE: {config.performance_mode.upper()}"
+            cv2.putText(annotated, details, (15, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
 
-        (text_width, text_height), baseline = cv2.getTextSize(
-            label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
-        )
-
-        text_bg_y1 = max(0, y1 - text_height - 6)
-        text_bg_y2 = y1
-        cv2.rectangle(
-            annotated,
-            (x1, text_bg_y1),
-            (x1 + text_width + 8, text_bg_y2),
-            color,
-            -1
-        )
-
-        cv2.putText(
-            annotated,
-            label,
-            (x1 + 4, max(text_height + 2, y1 - 4)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            font_scale,
-            (255, 255, 255),
-            font_thickness,
-            lineType=cv2.LINE_AA
-        )
-
-    return annotated
-
-
-def draw_accident_overlay(frame: np.ndarray, event: Dict[str, Any]) -> np.ndarray:
-    """Render accident candidate and confirmed overlays onto the frame."""
-    annotated = frame.copy()
-    h, w = annotated.shape[:2]
-    status = str(event.get("status", "suspected")).upper()
-    severity = str(event.get("severity", "LOW")).upper()
-    confidence = float(event.get("confidence", 0.0)) * 100.0
-
-    overlay = annotated.copy()
-    cv2.rectangle(overlay, (0, 0), (w, 90), (0, 0, 100), -1)
-    cv2.addWeighted(overlay, 0.75, annotated, 0.25, 0, annotated)
-
-    label = "⚠ ACCIDENT SUSPECTED" if status != "CONFIRMED" else "🚨 ACCIDENT DETECTED"
-    color = (0, 165, 255) if status != "CONFIRMED" else (0, 0, 255)
-    cv2.putText(annotated, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
-    cv2.putText(annotated, f"SEVERITY: {severity}", (12, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
-    cv2.putText(annotated, f"CONFIDENCE: {confidence:.0f}%", (12, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
-
-    collision_box = event.get("collision_box")
-    if collision_box:
-        x1, y1, x2, y2 = map(int, collision_box)
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 4)
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 1, cv2.LINE_4)
-        cv2.putText(annotated, "ACCIDENT ZONE", (max(8, x1 + 8), max(20, y1 - 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
-    return annotated
-
-
-def draw_overlay_stats(
-    frame: np.ndarray,
-    fps: float,
-    frame_count: int,
-    object_count: int,
-    device: str,
-    model_name: str,
-    paused: bool = False
-) -> np.ndarray:
-    """
-    Renders an edge AI telemetry overlay panel at the top of the video frame.
-    Displays live FPS, frame count, detected object count, inference hardware device, and key controls.
-    """
-    annotated = frame.copy()
-    h, w = annotated.shape[:2]
-
-    # Banner overlay background
-    overlay_height = 42
-    overlay = annotated.copy()
-    cv2.rectangle(overlay, (0, 0), (w, overlay_height), (15, 23, 42), -1)
-    cv2.addWeighted(overlay, 0.75, annotated, 0.25, 0, annotated)
-
-    # Telemetry text
-    status_tag = "[PAUSED]" if paused else "[LIVE]"
-    text = (
-        f"NEXGUARD | {status_tag} | Dev: {device.upper()} | Model: {model_name} | "
-        f"FPS: {fps:.1f} | Frames: {frame_count} | Objects: {object_count}"
-    )
-
-    cv2.putText(
-        annotated,
-        text,
-        (12, 26),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (0, 255, 200) if not paused else (0, 165, 255),
-        1,
-        lineType=cv2.LINE_AA
-    )
-
-    # Controls help footer overlay
-    controls_text = "Controls: [Q] Quit | [P] Pause | [S] Snapshot | [R] Reset Stats"
-    cv2.putText(
-        annotated,
-        controls_text,
-        (12, h - 12),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.45,
-        (220, 220, 220),
-        1,
-        lineType=cv2.LINE_AA
-    )
-
-    return annotated
+        return annotated
