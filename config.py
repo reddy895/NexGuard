@@ -62,6 +62,7 @@ class NexGuardConfig:
     
     # Temporal Confirmation & Cooldown
     min_collision_frames: int = 3
+    accident_candidate_threshold: float = 0.35
     accident_confirmation_frames: int = 5
     accident_cooldown_seconds: int = 30
     
@@ -114,6 +115,7 @@ class NexGuardConfig:
             "sudden_speed_drop_threshold": self.sudden_speed_drop_threshold,
             "direction_change_threshold": self.direction_change_threshold,
             "min_collision_frames": self.min_collision_frames,
+            "accident_candidate_threshold": self.accident_candidate_threshold,
             "accident_confirmation_frames": self.accident_confirmation_frames,
             "accident_cooldown_seconds": self.accident_cooldown_seconds,
             "whatsapp_recipient": self.whatsapp_recipient
