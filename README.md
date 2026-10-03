@@ -1,220 +1,186 @@
-# NEXGUARD — EDGE AI SURVEILLANCE SYSTEM
+# NexGuard — AI CCTV Accident Detection System
 
-![NexGuard Banner](https://img.shields.io/badge/NexGuard-Edge_AI_Surveillance-blue?style=for-the-badge)
-![Phase 1](https://img.shields.io/badge/Phase_1-Completed-success?style=for-the-badge)
-![Python](https://img.shields.io/badge/Python-3.8+-yellow?style=for-the-badge)
-![YOLO](https://img.shields.io/badge/YOLO-v8_Engine-red?style=for-the-badge)
-
-NexGuard is an **Edge AI CCTV Surveillance & Intelligent Incident Response Platform** engineered to provide real-time automated monitoring for urban road networks and surveillance cameras.
-
-> Default model limitation: the standard YOLOv8 COCO model detects objects such as people and vehicles but does not directly classify road accidents. NexGuard therefore combines YOLOv8 detection and tracking with temporal accident-event analysis. This is a heuristic collision detector based on multi-frame motion, proximity, and overlap signals rather than a direct accident-class prediction. A future version can use a custom accident-trained YOLOv8 model and/or a dedicated temporal action-recognition model trained on accident datasets.
+NexGuard is a terminal-first AI CCTV accident detection system built with Python, OpenCV, YOLOv8, object tracking, temporal motion analysis, and optional WhatsApp alert integration.
 
 ---
 
-## 📌 Overview & Problem Statement
+## 🚀 Key Features
 
-Urban traffic monitoring traditionally relies on manual CCTV observation by human operators, leading to delayed response times during high-severity road accidents. NexGuard solves this by deploying real-time YOLO object detection directly on local edge hardware, enabling instant detection, telemetry monitoring, and automated event reporting without heavy cloud dependence.
-
----
-
-## 🎯 Current Phase Scope (Phase 1)
-
-This repository contains **Phase 1** of NexGuard — a terminal-based Edge AI surveillance prototype.
-
-### Core Features (Phase 1)
-- 🖥️ **Clean Terminal Interface**: Menu-driven interface for selecting webcam, video file, or image input.
-- ⚡ **YOLO Detection Engine**: Real-time object detection with dynamic class mapping (COCO object classes: person, car, motorcycle, bus, truck, etc.).
-- 🚀 **Hardware Acceleration**: Auto-detection of CUDA/GPU or host CPU runtime environment.
-- 📊 **Live Telemetry Overlay**: Real-time FPS monitoring, frame count, object density tracking, and device mode display.
-- 🎯 **Live Grid Overlay**: A 3x3 grid remains visible over the active detection view.
-- ⏱️ **FPS Limit**: Inference is paced to a maximum of 20 frames per second.
-- 🟢 **Targeting Overlay**: Green borders for persons and vehicles, with red accident-zone highlighting and red detection labels when a collision candidate is confirmed.
-- 🎮 **Interactive Keyboard Controls**: Pause/resume stream, save evidence snapshots, and reset telemetry statistics.
-- 📸 **Snapshot Saving**: Saves annotated evidence snapshots directly to `outputs/` directory.
-- 📝 **Structured Telemetry Logging**: Application logs (`logs/nexguard.log`) and event logs (`logs/detection_events.jsonl`).
+1. **Terminal-First Interactive Control**: Operates entirely via clean terminal menus and OpenCV visual HUD windows.
+2. **Two-Layer Accident Detection Engine**:
+   - **Layer 1 (Core)**: YOLO object detection + persistent vehicle tracking + temporal motion & collision analysis. Works out-of-the-box without requiring custom training.
+   - **Layer 2 (Optional)**: Custom accident YOLO model (`models/custom/accident.pt`). When present, fuses custom bounding-box evidence with Layer 1 temporal analysis. When absent, system falls back to Layer 1 seamlessly.
+3. **Red Bounding Box Visual Highlighting**: When an accident is confirmed, involved vehicle bounding boxes turn **RED** (`CAR #23 ACCIDENT`) while non-involved vehicles retain normal color coding.
+4. **Temporal State Machine & False-Positive Suppression**:
+   - Multi-frame verification (`NORMAL` ➔ `SUSPECTED_COLLISION` ➔ `CONFIRMING` ➔ `ACCIDENT_CONFIRMED` ➔ `RECOVERY`).
+   - Suppresses false positives from parallel lane passing vehicles, normal braking, and pedestrian proximity.
+5. **Incident Severity & Evidence Capture**:
+   - Automatically classifies incident severity into `NORMAL`, `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL`.
+   - Saves evidence snapshot images and metadata JSON files to `incidents/`.
+6. **Local File Path Input & Media Handling**: Direct terminal file path input for images, videos (`.mp4`, `.avi`, `.mkv`), webcam feeds, and CCTV RTSP streams.
+7. **Performance Tuning & Empirical FPS Monitoring**: Real FPS calculation, configurable frame skipping (`PROCESS_EVERY_N_FRAMES`), and performance modes (`Accuracy`, `Balanced`, `Performance`).
+8. **CUDA GPU / CPU Acceleration**: Automatic hardware detection (`CUDA` or `CPU`).
 
 ---
 
-## 🛠️ Technology Stack
+## 🛠️ System Architecture
 
-- **Language**: Python 3.8+
-- **AI/ML Engine**: Ultralytics YOLOv8 / PyTorch
-- **Computer Vision**: OpenCV (Open Source Computer Vision Library)
-- **Configuration**: PyYAML / Dataclass configuration system
-- **Testing**: Python standard `unittest` test suite
+```
+                       Input Stream (Image / Video / Webcam / RTSP)
+                                           │
+                                           ▼
+                                 Media Path Validation
+                                           │
+                                           ▼
+                              Frame Preprocessing & Skip
+                                           │
+                                           ▼
+                                 YOLO Object Detection
+                            (yolov8n.pt + Optional Custom)
+                                           │
+                                           ▼
+                                 Persistent Tracking
+                           (Track ID, Velocity, Acceleration)
+                                           │
+                                           ▼
+                                 Track History Buffer
+                                           │
+                                           ▼
+                                    Motion Analysis
+                       (Displacement, Speed, Direction Change)
+                                           │
+                                           ▼
+                              Vehicle Proximity & Overlap
+                                    (IoU, Distance)
+                                           │
+                                           ▼
+                               Collision Candidate Engine
+                                           │
+                                           ▼
+                         Temporal Confirmation State Machine
+                    (NORMAL -> SUSPECTED -> CONFIRMING -> CONFIRMED)
+                                           │
+                                           ▼
+                                Accident Severity Engine
+                     (NORMAL, LOW, MEDIUM, HIGH, CRITICAL)
+                                           │
+                                           ▼
+                                Incident & Evidence Manager
+                               (Save Image / JSON, Cooldown)
+                                           │
+                                           ▼
+                                Visualization & Alerting
+                 (Red BBoxes for Involved Vehicles, HUD Overlay, WhatsApp)
+```
 
 ---
 
-## 📥 Installation & Setup
+## 💻 Quick Start Guide
 
-### 1. Clone the Repository
+### 1. Environment Setup
 ```bash
-git clone https://github.com/reddy895/NexGuard.git
+# Clone repository
+git clone https://github.com/your-username/NexGuard.git
 cd NexGuard
-```
 
-### 2. Set Up Virtual Environment (Recommended)
-```bash
+# Create and activate virtual environment
 python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
+source .venv/bin/activate
 
-### 3. Install Dependencies
-```bash
+# Install dependencies
 pip install -r requirements.txt
 ```
 
----
-
-## 🚀 Running the Application
-
-Launch the application entry point:
-
+### 2. Launch NexGuard
 ```bash
 python main.py
-```
-
-### Interactive Terminal Menu
-```text
-==================================================
-                 NEXGUARD
-        AI CCTV ACCIDENT DETECTION
-==================================================
-Model: YOLOv8n
-Tracking: ByteTrack
-Accident Detection: ENABLED
-Waiting for video input...
-==================================================
-
-Select input:
-1. Webcam
-2. Upload video file
-3. Upload image file
-4. Exit
-
-Enter option (1-4):
-```
-
-### Input Selection Options
-
-1. **Webcam Stream**:  
-   Select option `1`. NexGuard initializes the primary camera device (`index 0`).
-
-2. **Video File Inference**:  
-   Select option `2`, then choose a video in the file picker. The picker opens in `assets/sample`.
-
-3. **Static Image Inference**:  
-   Select option `3`, then choose an image in the file picker. The picker opens in `assets/sample`.
-
----
-
-## 🎮 Keyboard Controls
-
-While the live surveillance window is active, use the following interactive keys:
-
-| Key | Action | Description |
-|---|---|---|
-| **`Q`** / **`ESC`** | **Quit** | Stop detection loop and return to menu |
-| **`P`** | **Pause / Resume** | Freeze stream for detailed frame inspection |
-| **`S`** | **Snapshot** | Save annotated frame to `outputs/detection_YYYYMMDD_HHMMSS.jpg` |
-| **`R`** | **Reset Stats** | Reset frame counter, FPS timer, and object tally |
-
----
-
-## ⚙️ Configuration System
-
-Configure settings via `config.py` or `config.yaml`:
-
-```yaml
-model_path: yolov8n.pt
-confidence_threshold: 0.25
-iou_threshold: 0.45
-device: auto           # Options: 'auto', 'cuda', 'cpu'
-camera_index: 0
-input_size: 640
-frame_skip: 0
-target_fps: 20.0
-output_dir: outputs
-log_dir: logs
-refresh_rate_sec: 1.0
 ```
 
 ---
 
 ## 📂 Project Structure
 
-```text
+```
 NexGuard/
+├── main.py                   # Main terminal CLI entry point
+├── config.py                 # Centralized configuration system
+├── requirements.txt          # Python dependencies
+├── README.md                 # Project documentation
+├── LICENSE                   # Open-source license
+├── .env.example              # Environment variables template
 │
-├── main.py                     # Main application entry point & CLI menu
-├── config.py                   # Configuration management system
-├── config.yaml                 # Configuration YAML file
-├── requirements.txt            # Python dependencies
-├── README.md                   # Complete project documentation
-├── .gitignore                  # Git ignore rules for AI & cache files
+├── models/
+│   ├── base/
+│   │   └── yolov8n.pt        # Base pretrained YOLO model
+│   └── custom/
+│       └── accident.pt       # Optional custom accident YOLO model
 │
-├── models/                     # Directory for YOLO model weights (.pt)
+├── src/
+│   ├── detector.py           # YOLO inference wrapper & confidence filter
+│   ├── tracker.py            # Persistent vehicle tracker & history buffer
+│   ├── accident_detector.py  # Temporal state machine & evidence fusion
+│   ├── motion_analyzer.py    # Velocity, displacement, deceleration analysis
+│   ├── collision_analyzer.py # Proximity, IoU, collision candidate detection
+│   ├── severity_engine.py    # Incident severity classification engine
+│   ├── incident_manager.py   # Incident records & alert cooldown control
+│   ├── evidence_manager.py   # Local image & JSON evidence persistence
+│   ├── performance.py        # Real FPS counter & frame skip controller
+│   ├── display.py            # HUD renderer & involved vehicle RED highlighting
+│   └── pipeline.py           # Core application execution pipeline
 │
-├── src/                        # Application source code
-│   ├── __init__.py
-│   ├── detector.py             # YOLO detector engine abstraction
-│   ├── video.py                # Video & image input sources (Webcam, File, Image)
-│   ├── display.py              # Visualizations & telemetry overlay renderer
-│   ├── logger.py               # Application logger
-│   ├── event_logger.py         # Structured event telemetry logger
-│   └── utils.py                # Hardware detection & utility functions
+├── utils/
+│   ├── logger.py             # Structured logging system
+│   ├── geometry.py           # Spatial distance, IoU, and vector math
+│   ├── video.py              # Stream decoding & frame resizing
+│   └── validation.py         # Path, stream, and dataset validators
 │
-├── tests/                      # Comprehensive test suite
-│   ├── __init__.py
-│   ├── test_config.py          # Configuration unit tests
-│   ├── test_utils.py           # Utility function tests
-│   ├── test_display.py         # Display renderer unit tests
-│   ├── test_detector.py        # YOLO detector module tests
-│   ├── test_video.py           # Video input module tests
-│   ├── test_event_logger.py    # Event logger unit tests
-│   ├── test_main.py            # Main entry point unit tests
-│   └── test_integration.py     # End-to-end pipeline integration tests
+├── training/
+│   ├── train_accident.py     # Custom accident model training pipeline
+│   ├── validate_accident.py  # Model validation script
+│   └── dataset/              # Training dataset directory
 │
-├── assets/                     # Sample assets & generator
-│   └── sample/
-│       ├── generate_samples.py # Synthetic sample generator
-│       ├── traffic_sample.jpg  # Generated sample traffic image
-│       └── surveillance_sample.mp4 # Generated sample surveillance video
-│
-├── logs/                       # Application & event logs (gitignored)
-└── outputs/                    # Evidence snapshot output directory (gitignored)
+├── whatsapp/                 # WhatsApp integration wrapper
+├── incidents/                # Saved evidence snapshots & JSON metadata
+├── outputs/                  # Exported video outputs
+├── logs/                     # System logs
+└── tests/                    # Comprehensive unit tests
 ```
 
 ---
 
-## 🧪 Testing & Verification
+## 🧪 Dataset Preparation & Training
 
-Run the full test suite via standard `unittest`:
+To fine-tune a custom accident YOLO model, place your labeled dataset in `training/dataset/` using YOLO format:
 
+```
+training/dataset/
+├── images/
+│   ├── train/
+│   ├── val/
+│   └── test/
+├── labels/
+│   ├── train/
+│   ├── val/
+│   └── test/
+└── data.yaml
+```
+
+Run training from the menu (Option 5) or command line:
 ```bash
-python3 -m unittest discover tests
+python training/train_accident.py
 ```
 
 ---
 
-## 🛣️ Future Architecture Roadmap
+## 🧪 Running Unit Tests
 
-NexGuard is designed modularly to support multi-phase expansion:
-
-- **Phase 1 (Completed)**: Basic Edge AI CCTV surveillance & terminal YOLO pipeline.
-- **Phase 2**: Real-time road accident detection algorithms.
-- **Phase 3**: Temporal multi-frame motion verification & collision velocity tracking.
-- **Phase 4**: Incident severity classification (Minor, Moderate, Critical).
-- **Phase 5**: GPS location intelligence & GIS coordinate mapping.
-- **Phase 6**: Smart routing for nearest police & hospital emergency dispatch.
-- **Phase 7**: Automated WhatsApp, SMS, and emergency broadcast alerts.
-- **Phase 8**: Live web command dashboard & multi-camera streaming feed.
-- **Phase 9**: Predictive accident hotspot analytics & historical heatmaps.
-- **Phase 10**: Multi-camera edge node correlation & spatial tracking network.
+Run the full test suite using `pytest`:
+```bash
+pytest tests/
+```
 
 ---
 
-*NexGuard Edge AI Surveillance System — Phase 1 Release*
+## ⚠️ Disclaimer
 
-**LICENSED BY PRAVEEN REDDY**
-  *MIT and APACHE 2.0*
+NexGuard is an engineering detection system designed for automated surveillance assistance and risk monitoring. It should not be used as a certified emergency medical response or critical safety system.
