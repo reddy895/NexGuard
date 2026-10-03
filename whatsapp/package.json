@@ -1,0 +1,14 @@
+{
+  "name": "nexguard-whatsapp",
+  "version": "1.0.0",
+  "description": "Local QR-based WhatsApp Web integration for NexGuard",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.26.0",
+    "qrcode-terminal": "^0.12.0",
+    "dotenv": "^16.4.5"
+  }
+}

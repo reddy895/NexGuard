@@ -1,65 +1,32 @@
-# Python
+# Python Bytecode & Cache
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+.pytest_cache/
 
 # Virtual Environment
 .venv/
+env/
 venv/
 ENV/
-env/
 
-# PyInstaller / Executables
-*.manifest
-*.spec
+# Configuration & Secrets
+.env
+!.env.example
 
-# YOLO Models & Cache
-*.pt
-*.engine
-*.onnx
-*.tflite
-models/*.pt
-models/*.onnx
-models/*.engine
-.ultralytics/
-
-# Application Logs & Outputs
-logs/*.log
+# Local Data & Incident Outputs
+incidents/
 logs/
 outputs/
-incidents/
-outputs/*.jpg
-outputs/*.png
-outputs/*.mp4
-*.log
+data/
+runs/
 
-# IDE & Editor Files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
+# Large Model Weights (Keep directory structure)
+*.pt
+!models/base/.gitkeep
+!models/custom/.gitkeep
 
-# Temporary & Cache
-scratch/
-tmp/
-.cache/
-.pytest_cache/
+# WhatsApp LocalAuth Session & Node Modules
+whatsapp/node_modules/
+whatsapp/.wwebjs_auth/
+whatsapp/.wwebjs_cache/
