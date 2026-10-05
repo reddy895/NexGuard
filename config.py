@@ -24,9 +24,9 @@ WHATSAPP_BOT_DIR.mkdir(parents=True, exist_ok=True)
 class Config:
     # Model & Frame Rate Controls
     yolo_model_path: str = str(MODEL_PATH)
-    device: str = "cpu"  # 'cuda' or 'cpu'
-    max_fps: int = 15  # MAX 15 FPS restriction strictly enforced
-    yolo_confidence: float = 0.35
+    device: str = os.getenv("NEXGUARD_DEVICE", "cpu")  # 'cuda' or 'cpu'
+    max_fps: int = int(os.getenv("MAX_FPS", "15"))     # MAX 15 FPS restriction strictly enforced
+    yolo_confidence: float = float(os.getenv("YOLO_CONF", "0.35"))
     iou_threshold: float = 0.30
     inference_size: int = 640
 
@@ -52,7 +52,7 @@ class Config:
 
     # WhatsApp Alerting Settings
     whatsapp_recipient: str = os.getenv("WHATSAPP_RECIPIENT", "")
-    whatsapp_server_port: int = 3001
+    whatsapp_server_port: int = int(os.getenv("WHATSAPP_PORT", "3001"))
     alert_cooldown_seconds: int = 20
 
     # Target Object Classes (COCO IDs / Names)
