@@ -1,3 +1,7 @@
-from .client import whatsapp_client, WhatsAppClient
+"""
+NexGuard WhatsApp Bot Package
+"""
 
-__all__ = ["whatsapp_client", "WhatsAppClient"]
+from .bot_client import whatsapp_bot, WhatsAppBotClient
+
+__all__ = ["whatsapp_bot", "WhatsAppBotClient"]
