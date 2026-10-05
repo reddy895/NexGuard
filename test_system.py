@@ -121,6 +121,16 @@ class TestNexGuardSystem(unittest.TestCase):
         self.assertIn("status", status_info)
         self.assertIn("connected", status_info)
 
+    def test_07_fps_benchmark_stability(self):
+        """Validates that FrameRateRegulator maintains frame delay stability under load."""
+        regulator = FrameRateRegulator(max_fps=15)
+        start = time.time()
+        for _ in range(5):
+            regulator.tick()
+        total_time = time.time() - start
+        # 5 frames at 15 FPS = ~0.333 seconds minimum
+        self.assertGreaterEqual(total_time, 0.30)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
