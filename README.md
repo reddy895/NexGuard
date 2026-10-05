@@ -60,20 +60,38 @@ Scan your QR code to connect WhatsApp:
 node whatsapp_bot/index.js qr
 ```
 
-### 3. Dispatch Test Message
+### 3. WhatsApp Bot Interactive Commands
+When connected, you can interact with the bot from WhatsApp:
+- `!ping` - Test bot responsiveness
+- `!status` - Retrieve CCTV surveillance status and FPS health
+- `!help` - Display available commands
+
+### 4. Dispatch Test Message
 ```bash
 python3 send_test_message.py --number 919876543210
 ```
 
-### 4. Run System & Live Surveillance
+### 5. Run System & Live Surveillance
 ```bash
 python3 main.py
 ```
 
-### 5. Run Diagnostic Test Suite
+### 6. Run Diagnostic Test Suite
 ```bash
 python3 test_system.py
 ```
+
+---
+
+## ⚙️ Configuration & Environment Variables
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `MAX_FPS` | `15` | Maximum FPS rate cap (enforced by `FPSLimiter`) |
+| `WHATSAPP_RECIPIENT` | `""` | Target phone number with country code |
+| `WHATSAPP_PORT` | `3001` | Local IPC HTTP server port |
+| `NEXGUARD_DEVICE` | `cpu` | Processing device (`cpu` or `cuda`) |
+| `YOLO_CONF` | `0.35` | Confidence detection threshold |
 
 ---
 
