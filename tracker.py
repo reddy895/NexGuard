@@ -52,6 +52,12 @@ class TrackedObject:
         if len(self.history) > 20:
             self.history.pop(0)
             
+    def get_acceleration(self) -> float:
+        """Computes rate of speed change (px/frame^2)."""
+        if len(self.speed_history) < 2:
+            return 0.0
+        return self.speed_history[-1] - self.speed_history[-2]
+
     def get_speed_drop_ratio(self) -> float:
         """Computes relative speed drop ratio between recent peak and current speed."""
         if len(self.speed_history) < 3:
