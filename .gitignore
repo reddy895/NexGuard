@@ -1,32 +1,27 @@
-# Python Bytecode & Cache
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
-
-# Virtual Environment
-.venv/
+*.so
+.Python
 env/
 venv/
+.venv/
 ENV/
 
-# Configuration & Secrets
-.env
-!.env.example
-
-# Local Data & Incident Outputs
-incidents/
-logs/
-outputs/
-data/
-runs/
-
-# Large Model Weights (Keep directory structure)
+# Models & Large Data
 *.pt
-!models/base/.gitkeep
-!models/custom/.gitkeep
+*.onnx
+*.engine
 
-# WhatsApp LocalAuth Session & Node Modules
-whatsapp/node_modules/
-whatsapp/.wwebjs_auth/
-whatsapp/.wwebjs_cache/
+# WhatsApp & Node
+whatsapp_bot/node_modules/
+whatsapp_bot/.wwebjs_auth/
+whatsapp_bot/.wwebjs_cache/
+.env
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
+*.log
