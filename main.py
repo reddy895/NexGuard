@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import math
+import signal
 import cv2
 import joblib
 import numpy as np
@@ -259,42 +260,63 @@ def print_menu():
     print("==================================================")
 
 
+def handle_exit_signal(sig, frame):
+    log_event("info", "Received exit signal. Shutting down NexGuard...")
+    if whatsapp_bot.daemon_proc is not None:
+        try:
+            whatsapp_bot.daemon_proc.terminate()
+        except Exception:
+            pass
+    cv2.destroyAllWindows()
+    sys.exit(0)
+
+
 def main():
+    signal.signal(signal.SIGINT, handle_exit_signal)
+    signal.signal(signal.SIGTERM, handle_exit_signal)
     pipeline = NexGuardPipeline()
 
-    while True:
-        print_menu()
-        choice = input("Select option (1-7): ").strip()
+    try:
+        while True:
+            print_menu()
+            choice = input("Select option (1-7): ").strip()
 
-        if choice == "1":
-            p = input("Enter video file path: ").strip().strip('"').strip("'")
-            if p and Path(p).exists():
-                pipeline.process_video(p, source_name=Path(p).name)
+            if choice == "1":
+                p = input("Enter video file path: ").strip().strip('"').strip("'")
+                if p and Path(p).exists():
+                    pipeline.process_video(p, source_name=Path(p).name)
+                else:
+                    print("[-] Error: Video file not found.")
+            elif choice == "2":
+                print("[+] Accessing Webcam (Device 0)...")
+                pipeline.process_video(0, source_name="Webcam Feed")
+            elif choice == "3":
+                rtsp_url = input("Enter CCTV RTSP URL: ").strip()
+                if rtsp_url:
+                    pipeline.process_video(rtsp_url, source_name="RTSP CCTV")
+            elif choice == "4":
+                print("\n[+] Retraining Motion Gesture ML Model...")
+                from train_gesture_model import train_and_save_model
+                train_and_save_model()
+                pipeline._init_gesture_classifier()
+            elif choice == "5":
+                from send_test_message import main as send_test
+                send_test()
+            elif choice == "6":
+                print("\n[+] Running System Diagnostics & Automated Test Suite...")
+                os.system("python3 test_system.py")
+            elif choice == "7":
+                print("\nExiting NexGuard. Goodbye!\n")
+                if whatsapp_bot.daemon_proc is not None:
+                    try:
+                        whatsapp_bot.daemon_proc.terminate()
+                    except Exception:
+                        pass
+                sys.exit(0)
             else:
-                print("[-] Error: Video file not found.")
-        elif choice == "2":
-            print("[+] Accessing Webcam (Device 0)...")
-            pipeline.process_video(0, source_name="Webcam Feed")
-        elif choice == "3":
-            rtsp_url = input("Enter CCTV RTSP URL: ").strip()
-            if rtsp_url:
-                pipeline.process_video(rtsp_url, source_name="RTSP CCTV")
-        elif choice == "4":
-            print("\n[+] Retraining Motion Gesture ML Model...")
-            from train_gesture_model import train_and_save_model
-            train_and_save_model()
-            pipeline._init_gesture_classifier()
-        elif choice == "5":
-            from send_test_message import main as send_test
-            send_test()
-        elif choice == "6":
-            print("\n[+] Running System Diagnostics & Automated Test Suite...")
-            os.system("python3 test_system.py")
-        elif choice == "7":
-            print("\nExiting NexGuard. Goodbye!\n")
-            sys.exit(0)
-        else:
-            print("[-] Invalid option. Enter 1-7.")
+                print("[-] Invalid option. Enter 1-7.")
+    except (KeyboardInterrupt, EOFError):
+        handle_exit_signal(None, None)
 
 
 if __name__ == "__main__":
