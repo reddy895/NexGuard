@@ -1,3 +1,0 @@
-"""
-NexGuard Test Suite Initialization
-"""
