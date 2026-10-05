@@ -130,6 +130,12 @@ def parse_args() -> argparse.Namespace:
         default=cfg.accident_threshold,
         help="Accident detection confidence threshold (default: %(default)s)",
     )
+    parser.add_argument(
+        "--max-fps",
+        type=int,
+        default=15,
+        help="Limit pipeline speed to maximum FPS (default: %(default)s)",
+    )
 
     return parser.parse_args()
 
@@ -252,6 +258,7 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         while _running and source.is_open():
+            loop_start = time.time()
             ok, frame = source.read()
             if not ok:
                 if source.source_type == "file":
@@ -397,6 +404,13 @@ def run(args: argparse.Namespace) -> int:
                 if key in (ord("q"), ord("Q"), 27):  # q or ESC
                     log.info("Quit key pressed — stopping.")
                     break
+
+            # ── Frame Pacing (Max FPS) ────────────────────────────────────────
+            if args.max_fps > 0:
+                elapsed_loop = time.time() - loop_start
+                target_time = 1.0 / args.max_fps
+                if elapsed_loop < target_time:
+                    time.sleep(target_time - elapsed_loop)
 
     except KeyboardInterrupt:
         pass

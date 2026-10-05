@@ -22,7 +22,7 @@ from nexguard.utils.logging import get_logger
 
 log = get_logger("nexguard.alerts.whatsapp")
 
-BOT_DIR = Path(__file__).resolve().parents[3] / "whatsapp_bot"
+BOT_DIR = Path(__file__).resolve().parents[2] / "whatsapp_bot"
 BOT_URL = "http://127.0.0.1:3001"
 REQUEST_TIMEOUT = 8
 
