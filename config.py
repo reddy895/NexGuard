@@ -1,126 +1,63 @@
 """
-NexGuard Centralized Configuration System
-Provides all parameters for model inference, detection, tracking, temporal accident analysis,
-severity scoring, performance tuning, and notification thresholds.
+NexGuard — AI CCTV Accident Detection Configuration
+Centralized configuration parameters for YOLO detection, multi-object tracking,
+max 15 FPS frame rate limiting, motion gesture classifier, and WhatsApp messaging.
 """
 
 import os
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Dict, Any, List, Tuple
-import torch
+from dataclasses import dataclass
+from typing import Tuple, Dict, Any
 
+# Root Paths
 BASE_DIR = Path(__file__).resolve().parent
-MODELS_DIR = BASE_DIR / "models"
-BASE_MODEL_DIR = MODELS_DIR / "base"
-CUSTOM_MODEL_DIR = MODELS_DIR / "custom"
-INCIDENTS_DIR = BASE_DIR / "incidents"
-LOGS_DIR = BASE_DIR / "logs"
-OUTPUTS_DIR = BASE_DIR / "outputs"
-DATASET_DIR = BASE_DIR / "training" / "dataset"
+TEST_CLIPS_DIR = BASE_DIR / "test_clips"
+WHATSAPP_BOT_DIR = BASE_DIR / "whatsapp_bot"
+MODEL_PATH = BASE_DIR / "yolov8n.pt"
 
-# Ensure essential directories exist
-for d in [MODELS_DIR, BASE_MODEL_DIR, CUSTOM_MODEL_DIR, INCIDENTS_DIR, LOGS_DIR, OUTPUTS_DIR, DATASET_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
-
-
-def detect_device() -> str:
-    """Detects whether CUDA GPU is available or defaults to CPU."""
-    if torch.cuda.is_available():
-        return "cuda"
-    return "cpu"
+# Ensure directories exist
+TEST_CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+WHATSAPP_BOT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
-class NexGuardConfig:
-    """Centralized NexGuard application configuration."""
-    
-    # Model Paths
-    base_model_path: str = str(BASE_MODEL_DIR / "yolov8n.pt")
-    custom_model_path: str = str(CUSTOM_MODEL_DIR / "accident.pt")
-    
-    # Device & Processing
-    device: str = "auto"
-    inference_size: int = 640  # Options: 640, 512, 416
-    process_every_n_frames: int = 2  # Frame skip (1 = process every frame, 2 = skip every 2nd frame)
-    performance_mode: str = "balanced"  # Options: "accuracy", "balanced", "performance"
-    
-    # Detection Thresholds
+class Config:
+    # Model & Frame Rate Controls
+    yolo_model_path: str = str(MODEL_PATH)
+    device: str = "cpu"  # 'cuda' or 'cpu'
+    max_fps: int = 15  # MAX 15 FPS restriction strictly enforced
     yolo_confidence: float = 0.35
-    iou_threshold: float = 0.25
-    
-    # Tracking Settings
-    track_history_length: int = 20
-    max_lost_frames: int = 30
-    
-    # Motion & Collision Thresholds
-    proximity_threshold_px: float = 120.0
+    iou_threshold: float = 0.30
+    inference_size: int = 640
+
+    # Motion & Collision Dynamics Thresholds
+    proximity_threshold_px: float = 100.0
     collision_iou_threshold: float = 0.15
-    sudden_speed_drop_threshold: float = 0.50  # 50% relative speed drop
-    direction_change_threshold: float = 45.0   # 45 degrees relative angle shift
-    velocity_approach_threshold: float = 15.0  # px/frame
-    
-    # Temporal Confirmation & Cooldown
-    min_collision_frames: int = 3
-    accident_candidate_threshold: float = 0.35
-    accident_confirmation_frames: int = 5
-    accident_cooldown_seconds: int = 30
-    
-    # Object Classes
-    person_classes: Tuple[str, ...] = ("person",)
-    vehicle_classes: Tuple[str, ...] = ("car", "motorcycle", "bus", "truck", "bicycle")
-    
-    # Display Settings
+    speed_drop_threshold: float = 0.45       # 45% sudden drop in speed
+    direction_change_threshold: float = 40.0 # 40 degrees angular change
+    accident_confirm_frames: int = 4         # Temporal confirmation over 4 consecutive frames
+
+    # Tracker Settings
+    max_lost_frames: int = 25
+    track_history_length: int = 15
+
+    # Gesture / Motion Classifier Paths
+    gesture_model_joblib: str = str(BASE_DIR / "gesture_classifier.joblib")
+    gesture_model_npz: str = str(BASE_DIR / "gesture_classifier_fast.npz")
+
+    # Display & Visual UI
     display_width: int = 1280
     display_height: int = 720
-    window_name: str = "NexGuard AI CCTV Accident Detection"
-    
-    # WhatsApp Configuration
-    whatsapp_recipient: str = ""
-    alert_cooldown_seconds: int = 30
+    window_name: str = "NexGuard AI CCTV Accident System (Max 15 FPS)"
 
-    def __post_init__(self):
-        if self.device == "auto":
-            self.device = detect_device()
-        self.yolo_confidence = max(0.01, min(1.0, float(self.yolo_confidence)))
-        self.iou_threshold = max(0.01, min(1.0, float(self.iou_threshold)))
-        self.apply_performance_mode(self.performance_mode)
+    # WhatsApp Alerting Settings
+    whatsapp_recipient: str = os.getenv("WHATSAPP_RECIPIENT", "")
+    whatsapp_server_port: int = 3001
+    alert_cooldown_seconds: int = 20
 
-    def apply_performance_mode(self, mode: str):
-        """Applies presets for Accuracy, Balanced, or Performance modes."""
-        self.performance_mode = mode.lower()
-        if self.performance_mode == "accuracy":
-            self.process_every_n_frames = 1
-            self.inference_size = 640
-        elif self.performance_mode == "performance":
-            self.process_every_n_frames = 3
-            self.inference_size = 416
-        else:  # balanced
-            self.process_every_n_frames = 2
-            self.inference_size = 640
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "base_model_path": self.base_model_path,
-            "custom_model_path": self.custom_model_path,
-            "device": self.device,
-            "inference_size": self.inference_size,
-            "process_every_n_frames": self.process_every_n_frames,
-            "performance_mode": self.performance_mode,
-            "yolo_confidence": self.yolo_confidence,
-            "iou_threshold": self.iou_threshold,
-            "track_history_length": self.track_history_length,
-            "proximity_threshold_px": self.proximity_threshold_px,
-            "collision_iou_threshold": self.collision_iou_threshold,
-            "sudden_speed_drop_threshold": self.sudden_speed_drop_threshold,
-            "direction_change_threshold": self.direction_change_threshold,
-            "min_collision_frames": self.min_collision_frames,
-            "accident_candidate_threshold": self.accident_candidate_threshold,
-            "accident_confirmation_frames": self.accident_confirmation_frames,
-            "accident_cooldown_seconds": self.accident_cooldown_seconds,
-            "whatsapp_recipient": self.whatsapp_recipient
-        }
+    # Target Object Classes (COCO IDs / Names)
+    vehicle_classes: Tuple[str, ...] = ("car", "motorcycle", "bus", "truck", "bicycle")
+    person_classes: Tuple[str, ...] = ("person",)
 
 
-# Global configuration singleton instance
-config = NexGuardConfig()
+config = Config()
