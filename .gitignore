@@ -1,0 +1,78 @@
+# ============================================================
+# NexGuard .gitignore
+# ============================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+.env/
+
+# Environment secrets — NEVER commit
+.env
+*.env.local
+
+# YOLO / ML model binaries (large files)
+*.pt
+*.onnx
+*.engine
+*.pkl
+*.joblib
+*.npz
+
+# Evidence files — locally generated
+evidence/incidents/
+!evidence/.gitkeep
+
+# Logs — locally generated
+logs/*.log
+!logs/.gitkeep
+
+# Test clips — large media files
+test_clips/*.mp4
+test_clips/*.avi
+test_clips/*.mkv
+test_clips/*.mov
+!test_clips/.gitkeep
+
+# Datasets — large data
+datasets/accident/images/
+datasets/accident/labels/
+
+# WhatsApp / Node.js legacy
+whatsapp_bot/node_modules/
+whatsapp_bot/.wwebjs_auth/
+whatsapp_bot/.wwebjs_cache/
+whatsapp_bot/package-lock.json
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Legacy gesture models (removed from pipeline)
+gesture_classifier.joblib
+gesture_classifier_fast.npz

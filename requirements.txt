@@ -1,0 +1,22 @@
+# ============================================================
+# NexGuard — Python Dependencies
+# ============================================================
+
+# Core AI / Computer Vision
+ultralytics>=8.0.0          # YOLO detection + tracking (ByteTrack/BOT-SORT)
+opencv-python>=4.8.0        # Frame processing, visualization
+numpy>=1.23.0               # Numerical computation
+torch>=2.0.0                # PyTorch (CUDA acceleration)
+
+# Data & Utilities
+python-dotenv>=1.0.0        # .env configuration loading
+requests>=2.28.0            # WhatsApp HTTP API calls
+Pillow>=9.0.0               # Image saving for evidence
+
+# Testing
+pytest>=7.0.0               # Test runner
+pytest-mock>=3.10.0         # Mock objects for external services
+
+# Optional — install only if needed for training
+# scikit-learn>=1.2.0       # If training custom severity classifier
+# albumentations>=1.3.0     # Data augmentation for training
