@@ -1,186 +1,81 @@
-# NexGuard — AI CCTV Accident Detection System
+# NexGuard — AI CCTV Accident Detection System (Max 15 FPS)
 
-NexGuard is a terminal-first AI CCTV accident detection system built with Python, OpenCV, YOLOv8, object tracking, temporal motion analysis, and optional WhatsApp alert integration.
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![YOLOv8](https://img.shields.io/badge/YOLO-v8-green)
+![FPS](https://img.shields.io/badge/FPS-Capped%2015.0%20MAX-brightgreen)
+![WhatsApp](https://img.shields.io/badge/WhatsApp-Bot%20Integration-success)
 
----
-
-## 🚀 Key Features
-
-1. **Terminal-First Interactive Control**: Operates entirely via clean terminal menus and OpenCV visual HUD windows.
-2. **Two-Layer Accident Detection Engine**:
-   - **Layer 1 (Core)**: YOLO object detection + persistent vehicle tracking + temporal motion & collision analysis. Works out-of-the-box without requiring custom training.
-   - **Layer 2 (Optional)**: Custom accident YOLO model (`models/custom/accident.pt`). When present, fuses custom bounding-box evidence with Layer 1 temporal analysis. When absent, system falls back to Layer 1 seamlessly.
-3. **Red Bounding Box Visual Highlighting**: When an accident is confirmed, involved vehicle bounding boxes turn **RED** (`CAR #23 ACCIDENT`) while non-involved vehicles retain normal color coding.
-4. **Temporal State Machine & False-Positive Suppression**:
-   - Multi-frame verification (`NORMAL` ➔ `SUSPECTED_COLLISION` ➔ `CONFIRMING` ➔ `ACCIDENT_CONFIRMED` ➔ `RECOVERY`).
-   - Suppresses false positives from parallel lane passing vehicles, normal braking, and pedestrian proximity.
-5. **Incident Severity & Evidence Capture**:
-   - Automatically classifies incident severity into `NORMAL`, `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL`.
-   - Saves evidence snapshot images and metadata JSON files to `incidents/`.
-6. **Local File Path Input & Media Handling**: Direct terminal file path input for images, videos (`.mp4`, `.avi`, `.mkv`), webcam feeds, and CCTV RTSP streams.
-7. **Performance Tuning & Empirical FPS Monitoring**: Real FPS calculation, configurable frame skipping (`PROCESS_EVERY_N_FRAMES`), and performance modes (`Accuracy`, `Balanced`, `Performance`).
-8. **CUDA GPU / CPU Acceleration**: Automatic hardware detection (`CUDA` or `CPU`).
+NexGuard is a high-performance Edge AI CCTV accident detection system that enforces a strict **Max 15 FPS** processing cap for optimal hardware efficiency while running a background **WhatsApp Bot** to listen for commands and dispatch real-time incident alerts.
 
 ---
 
-## 🛠️ System Architecture
-
-```
-                       Input Stream (Image / Video / Webcam / RTSP)
-                                           │
-                                           ▼
-                                 Media Path Validation
-                                           │
-                                           ▼
-                              Frame Preprocessing & Skip
-                                           │
-                                           ▼
-                                 YOLO Object Detection
-                            (yolov8n.pt + Optional Custom)
-                                           │
-                                           ▼
-                                 Persistent Tracking
-                           (Track ID, Velocity, Acceleration)
-                                           │
-                                           ▼
-                                 Track History Buffer
-                                           │
-                                           ▼
-                                    Motion Analysis
-                       (Displacement, Speed, Direction Change)
-                                           │
-                                           ▼
-                              Vehicle Proximity & Overlap
-                                    (IoU, Distance)
-                                           │
-                                           ▼
-                               Collision Candidate Engine
-                                           │
-                                           ▼
-                         Temporal Confirmation State Machine
-                    (NORMAL -> SUSPECTED -> CONFIRMING -> CONFIRMED)
-                                           │
-                                           ▼
-                                Accident Severity Engine
-                     (NORMAL, LOW, MEDIUM, HIGH, CRITICAL)
-                                           │
-                                           ▼
-                                Incident & Evidence Manager
-                               (Save Image / JSON, Cooldown)
-                                           │
-                                           ▼
-                                Visualization & Alerting
-                 (Red BBoxes for Involved Vehicles, HUD Overlay, WhatsApp)
-```
-
----
-
-## 💻 Quick Start Guide
-
-### 1. Environment Setup
-```bash
-# Clone repository
-git clone https://github.com/your-username/NexGuard.git
-cd NexGuard
-
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Launch NexGuard
-```bash
-python main.py
-```
-
----
-
-## 📂 Project Structure
+## 📁 Architecture & File Structure
 
 ```
 NexGuard/
-├── main.py                   # Main terminal CLI entry point
-├── config.py                 # Centralized configuration system
-├── requirements.txt          # Python dependencies
-├── README.md                 # Project documentation
-├── LICENSE                   # Open-source license
-├── .env.example              # Environment variables template
-│
-├── models/
-│   ├── base/
-│   │   └── yolov8n.pt        # Base pretrained YOLO model
-│   └── custom/
-│       └── accident.pt       # Optional custom accident YOLO model
-│
-├── src/
-│   ├── detector.py           # YOLO inference wrapper & confidence filter
-│   ├── tracker.py            # Persistent vehicle tracker & history buffer
-│   ├── accident_detector.py  # Temporal state machine & evidence fusion
-│   ├── motion_analyzer.py    # Velocity, displacement, deceleration analysis
-│   ├── collision_analyzer.py # Proximity, IoU, collision candidate detection
-│   ├── severity_engine.py    # Incident severity classification engine
-│   ├── incident_manager.py   # Incident records & alert cooldown control
-│   ├── evidence_manager.py   # Local image & JSON evidence persistence
-│   ├── performance.py        # Real FPS counter & frame skip controller
-│   ├── display.py            # HUD renderer & involved vehicle RED highlighting
-│   └── pipeline.py           # Core application execution pipeline
-│
-├── utils/
-│   ├── logger.py             # Structured logging system
-│   ├── geometry.py           # Spatial distance, IoU, and vector math
-│   ├── video.py              # Stream decoding & frame resizing
-│   └── validation.py         # Path, stream, and dataset validators
-│
-├── training/
-│   ├── train_accident.py     # Custom accident model training pipeline
-│   ├── validate_accident.py  # Model validation script
-│   └── dataset/              # Training dataset directory
-│
-├── whatsapp/                 # WhatsApp integration wrapper
-├── incidents/                # Saved evidence snapshots & JSON metadata
-├── outputs/                  # Exported video outputs
-├── logs/                     # System logs
-└── tests/                    # Comprehensive unit tests
+├── test_clips/                     # Sample test video clips
+├── whatsapp_bot/                   # WhatsApp Node.js listener daemon & python client
+│   ├── index.js                    # whatsapp-web.js daemon & HTTP API server
+│   └── bot_client.py               # Python wrapper for status & message dispatch
+├── .gitignore                      # Git ignore rules
+├── LICENSE                         # MIT License
+├── README.md                       # Comprehensive documentation
+├── config.py                       # System configuration & Max 15 FPS parameter
+├── gesture_classifier.joblib       # Trained scikit-learn motion dynamics model
+├── gesture_classifier_fast.npz     # NumPy binary weights for fast inference
+├── main.py                         # Application CLI & live surveillance pipeline
+├── requirements.txt                # Python dependencies
+├── send_test_message.py            # Standalone CLI tool to dispatch test WhatsApp alerts
+├── test_system.py                  # Automated test suite (15 FPS, tracker, ML model)
+├── tracker.py                      # Multi-object tracker & trajectory vectors
+├── train_gesture_model.py          # Synthetic dataset generator & model trainer
+├── ui.py                           # Surveillance HUD dashboard renderer
+└── utils.py                        # FPSLimiter rate regulator & spatial geometry math
 ```
 
 ---
 
-## 🧪 Dataset Preparation & Training
+## ✨ Features
 
-To fine-tune a custom accident YOLO model, place your labeled dataset in `training/dataset/` using YOLO format:
+- **Strict Max 15 FPS Cap**: Enforces hardware timing so GPU/CPU frame rate never exceeds 15.0 FPS.
+- **WhatsApp Listener & Dispatcher**: Runs a background daemon using `whatsapp-web.js` listening for `!status`, `!ping`, `!help` commands while allowing instant alert dispatching from Python.
+- **YOLOv8 + Motion ML Classifier**: Combines spatial YOLO object detection with a Random Forest dynamic gesture classifier (`gesture_classifier.joblib`).
+- **Multi-Object Tracking**: Centroid and IoU object tracker with historical speed drop analysis.
+- **Surveillance HUD Overlay**: Displays live FPS badge (Max 15 FPS), vehicle/pedestrian vectors, WhatsApp connection state, and flashing accident alert banners.
 
-```
-training/dataset/
-├── images/
-│   ├── train/
-│   ├── val/
-│   └── test/
-├── labels/
-│   ├── train/
-│   ├── val/
-│   └── test/
-└── data.yaml
-```
+---
 
-Run training from the menu (Option 5) or command line:
+## 🚀 Quick Start
+
+### 1. Requirements & Setup
 ```bash
-python training/train_accident.py
+pip install -r requirements.txt
+cd whatsapp_bot && npm install && cd ..
 ```
 
----
-
-## 🧪 Running Unit Tests
-
-Run the full test suite using `pytest`:
+### 2. WhatsApp QR Authentication
+Scan your QR code to connect WhatsApp:
 ```bash
-pytest tests/
+node whatsapp_bot/index.js qr
+```
+
+### 3. Dispatch Test Message
+```bash
+python3 send_test_message.py --number 919876543210
+```
+
+### 4. Run System & Live Surveillance
+```bash
+python3 main.py
+```
+
+### 5. Run Diagnostic Test Suite
+```bash
+python3 test_system.py
 ```
 
 ---
 
-## ⚠️ Disclaimer
-
-NexGuard is an engineering detection system designed for automated surveillance assistance and risk monitoring. It should not be used as a certified emergency medical response or critical safety system.
+## 📄 License
+MIT License.
