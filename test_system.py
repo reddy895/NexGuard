@@ -131,6 +131,24 @@ class TestNexGuardSystem(unittest.TestCase):
         # 5 frames at 15 FPS = ~0.333 seconds minimum
         self.assertGreaterEqual(total_time, 0.30)
 
+    def test_08_multi_detection_tracker_stress(self):
+        """Stress tests tracker with varying detection count per frame."""
+        tracker = ObjectTracker(max_lost_frames=5, iou_threshold=0.2)
+        # Frame 1: 5 vehicles
+        dets1 = [{"bbox": (i * 50.0, 100.0, i * 50.0 + 40.0, 150.0), "class_name": "car", "confidence": 0.9} for i in range(5)]
+        tracks1 = tracker.update(dets1)
+        self.assertEqual(len(tracks1), 5)
+
+        # Frame 2: 2 vehicles matched, 3 new vehicles
+        dets2 = [
+            {"bbox": (0.0, 102.0, 40.0, 152.0), "class_name": "car", "confidence": 0.9},
+            {"bbox": (50.0, 103.0, 90.0, 153.0), "class_name": "car", "confidence": 0.9},
+            {"bbox": (300.0, 300.0, 350.0, 350.0), "class_name": "car", "confidence": 0.85},
+            {"bbox": (400.0, 300.0, 450.0, 350.0), "class_name": "car", "confidence": 0.85}
+        ]
+        tracks2 = tracker.update(dets2)
+        self.assertGreaterEqual(len(tracks2), 4)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

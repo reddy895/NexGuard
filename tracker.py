@@ -103,17 +103,17 @@ class ObjectTracker:
 
         unmatched_detections = list(range(len(detections)))
         unmatched_tracks = list(self.tracked_objects.keys())
+        matched_det_indices = set()
 
         # Match using IoU matrix
         if unmatched_tracks and unmatched_detections:
-            iou_matrix = np.zeros((len(unmatched_tracks), len(unmatched_detections)))
+            iou_matrix = np.zeros((len(unmatched_tracks), len(unmatched_detections)), dtype=np.float32)
             for i, tid in enumerate(unmatched_tracks):
                 for j, det_idx in enumerate(unmatched_detections):
                     det_box = detections[det_idx]["bbox"]
                     iou_matrix[i, j] = self.compute_iou(self.tracked_objects[tid].bbox, det_box)
 
             # Greedy matching
-            matched_pairs = []
             while True:
                 if iou_matrix.size == 0:
                     break
@@ -129,16 +129,14 @@ class ObjectTracker:
                     confidence=detections[det_idx]["confidence"]
                 )
                 
-                iou_matrix[i, :] = -1
-                iou_matrix[:, j] = -1
-
-                if tid in unmatched_tracks:
-                    unmatched_tracks.remove(tid)
-                if det_idx in unmatched_detections:
-                    unmatched_detections.remove(det_idx)
+                iou_matrix[i, :] = -1.0
+                iou_matrix[:, j] = -1.0
+                matched_det_indices.add(det_idx)
 
         # Create new tracks for remaining unmatched detections
         for det_idx in unmatched_detections:
+            if det_idx in matched_det_indices:
+                continue
             det = detections[det_idx]
             new_obj = TrackedObject(
                 track_id=self.next_id,
