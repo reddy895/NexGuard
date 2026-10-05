@@ -73,6 +73,10 @@ class NexGuardUI:
             label = f"ID-{obj.track_id} {obj.class_name} ({obj.speed:.1f}px/f)"
             cv2.putText(canvas, label, (x1, max(15, y1 - 8)), self.font, 0.45, box_color, 1)
 
+            # Draw historical trajectory trail
+            for pt in obj.history[:-1]:
+                cv2.circle(canvas, (int(pt[0]), int(pt[1])), 2, (0, 200, 255), -1)
+
             # Motion direction vector arrow
             if len(obj.history) >= 2:
                 p1 = (int(obj.history[-2][0]), int(obj.history[-2][1]))
