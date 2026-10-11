@@ -1,351 +1,497 @@
-# NexGuard — AI-Powered CCTV Accident Detection System
+# NexGuard — AI-Powered Accident Detection & Emergency Alert System
 
-NexGuard is a modular Python computer-vision system designed for edge surveillance and real-time traffic accident response. It processes live CCTV feeds (RTSP/Webcam) and video files to detect, track, and analyze potential traffic accidents.
+<p align="center">
+  <strong>Detect faster. Alert smarter. Respond sooner.</strong>
+  <br />
+  An AI-powered CCTV surveillance system designed to detect potential road accidents and support emergency response workflows.
+</p>
 
-Unlike simple frame-by-frame classifiers, NexGuard uses temporal event analysis to evaluate object trajectories, collision indicators, and severity before generating incident alerts.
+<p align="center">
+  <img src="https://img.shields.io/badge/AI-Computer%20Vision-7C3AED?style=for-the-badge&logo=opencv&logoColor=white" alt="Computer Vision" />
+  <img src="https://img.shields.io/badge/Object%20Detection-YOLO-00FFFF?style=for-the-badge&logoColor=black" alt="YOLO Object Detection" />
+  <img src="https://img.shields.io/badge/Language-Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/Video%20Processing-OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white" alt="OpenCV" />
+</p>
 
-## 🏗️ Architecture
+<p align="center">
+  <img src="https://img.shields.io/badge/Execution-Terminal%20%7C%20Python-informational?style=flat-square" alt="Terminal execution" />
+  <img src="https://img.shields.io/badge/Alerts-WhatsApp%20Integration-25D366?style=flat-square&logo=whatsapp&logoColor=white" alt="WhatsApp integration" />
+  <img src="https://img.shields.io/badge/Focus-Road%20Safety-red?style=flat-square" alt="Road safety" />
+  <img src="https://img.shields.io/badge/Status-Development-orange?style=flat-square" alt="Development status" />
+</p>
 
-The following Mermaid diagram represents the complete NexGuard pipeline, including video input, YOLOv8 detection, object tracking, temporal collision analysis, severity scoring, incident management, evidence recording, and WhatsApp notifications.
+---
 
-```mermaid
-flowchart TD
-    %% Input Source Layer
-    subgraph INPUT["1. Input Source Layer - nexguard/input"]
-        direction LR
-        SRC1["Webcam 0"]
-        SRC2["Video File (.mp4)"]
-        SRC3["RTSP IP Camera"]
-    end
+## Table of Contents
 
-    MAIN["Pipeline Orchestrator<br/>main.py"]
+- [Overview](#overview)
+- [Problem Statement](#problem-statement)
+- [Objectives](#objectives)
+- [Key Features](#key-features)
+- [System Architecture](#system-architecture)
+- [Technology Stack](#technology-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [How It Works](#how-it-works)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Safety and Limitations](#safety-and-limitations)
+- [Future Scope](#future-scope)
+- [Contributing](#contributing)
+- [Team](#team)
+- [License](#license)
 
-    INPUT -->|Frame Feed| MAIN
+---
 
-    %% Core Computer Vision Pipeline
-    subgraph CV["2. Core CV and Heuristic Engine"]
-        direction TB
+## Overview
 
-        DET["YOLOv8 Detection Engine<br/>nexguard/detection"]
+**NexGuard** is an AI-powered road surveillance and accident detection project that uses computer vision to analyze CCTV footage or video input for potential road accidents.
 
-        TRACK["Temporal Object Tracker<br/>IoU and Velocity Estimation<br/>nexguard/tracking"]
+The system is designed to process video frames using a YOLO-based object detection model, analyze possible accident events, classify incident severity where supported by the detection logic, and initiate appropriate notification workflows.
 
-        COLL["Collision Heuristics<br/>Temporal Window Analysis<br/>nexguard/accident"]
+The goal is to reduce reliance on continuous manual monitoring and help relevant responders receive incident information more quickly.
 
-        SEV["Severity Scoring<br/>LOW / MEDIUM / HIGH / CRITICAL<br/>nexguard/accident/severity.py"]
+NexGuard is intended as an assistance system for road safety and emergency response. Actual detection performance and notification capabilities depend on the trained model, configured rules, video input, and connected messaging services.
 
-        LIFECYCLE["Incident Lifecycle Engine<br/>nexguard/accident/event.py"]
+## Problem Statement
 
-        DET -->|Bounding Boxes and Classes| TRACK
-        TRACK -->|Persistent IDs and Trajectories| COLL
-        COLL -->|Collision Candidates| SEV
-        SEV -->|Scored Event Details| LIFECYCLE
-    end
+Road accidents can require rapid intervention, but manual monitoring and incident reporting may introduce delays.
 
-    MAIN -->|Raw Frames| DET
+Key challenges include:
 
-    %% Visualization and Diagnostics
-    subgraph VIS["Visualization and Diagnostics"]
-        direction LR
-        HUD["OpenCV HUD Window<br/>nexguard/visualization"]
-        TERM["Terminal Statistics and Logs<br/>nexguard/utils"]
-    end
+- **Delayed Detection:** Accidents may not be noticed immediately when surveillance feeds are monitored manually.
+- **Continuous Monitoring:** Monitoring multiple camera feeds can be difficult for human operators.
+- **Incident Classification:** Different incidents may require different response procedures.
+- **Notification Delays:** Relevant responders need timely and useful incident information.
+- **Limited Automation:** Existing surveillance setups may lack an integrated computer vision and alert workflow.
 
-    MAIN -.->|Render Output| HUD
-    MAIN -.->|CLI Output| TERM
+NexGuard explores how AI-powered video analysis can support earlier incident detection and structured emergency notifications.
 
-    %% Asynchronous Processing
-    subgraph ASYNC["3. Non-Blocking Background Tasks"]
-        direction TB
+## Objectives
 
-        QUEUE[("Async I/O Queue")]
+- Analyze video footage using a YOLO-based detection model.
+- Identify potential accident events using configured detection logic.
+- Classify incidents by severity when supported by the implementation.
+- Trigger configurable notification workflows.
+- Provide a terminal-based execution and monitoring interface.
+- Establish a foundation for future CCTV and edge-computing integration.
 
-        EVID["Evidence Recorder<br/>nexguard/evidence"]
+---
 
-        STORAGE[("Local Evidence Storage<br/>.mp4 and .jpg")]
+## Key Features
 
-        ALERT["Alert Client<br/>nexguard/alerts"]
+### 1. AI-Powered Object Detection
 
-        BOT["WhatsApp Microservice<br/>whatsapp_bot / whatsapp-web.js"]
+- YOLO-based computer vision.
+- Frame-by-frame video analysis.
+- Detection of objects learned by the configured model.
+- Support for compatible video input sources.
+- Terminal output for monitoring model execution.
 
-        CONTACTS[("Emergency Contacts<br/>WhatsApp")]
+**Note:** Detecting objects is not equivalent to reliably detecting accidents. Accident recognition requires appropriate training data, temporal analysis, or validated incident-detection logic.
 
-        QUEUE -->|Background Worker| EVID
-        QUEUE -->|Background Worker| ALERT
+### 2. Accident Event Analysis
 
-        EVID -->|Save Impact Frame and Video Clip| STORAGE
+The accident-analysis stage evaluates detection results to identify potential incident events.
 
-        ALERT -->|IPC or HTTP Trigger| BOT
+Depending on the implementation, this stage may incorporate:
 
-        BOT -->|Send Incident Alert| CONTACTS
-    end
+- Detected object classes.
+- Object positions and movement.
+- Interactions between vehicles.
+- Temporal changes across video frames.
+- Configured accident-detection rules.
 
-    LIFECYCLE -->|Confirmed Incident Event| QUEUE
+Detection accuracy depends on the model, dataset, lighting, camera angle, occlusion, and quality of the footage.
 
-    %% Styling
-    classDef input fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#01579b;
-    classDef pipeline fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20;
-    classDef async fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#e65100;
-    classDef visualization fill:#ede7f6,stroke:#512da8,stroke-width:2px,color:#311b92;
-    classDef core fill:#eceff1,stroke:#455a64,stroke-width:3px,color:#263238;
+### 3. Incident Severity Classification
 
-    class SRC1,SRC2,SRC3 input;
-    class DET,TRACK,COLL,SEV,LIFECYCLE pipeline;
-    class QUEUE,EVID,STORAGE,ALERT,BOT,CONTACTS async;
-    class HUD,TERM visualization;
-    class MAIN core;
-```
+NexGuard is designed to support incident classification for different response workflows.
 
-### Architecture Workflow
+An illustrative response policy could be:
 
-1. **Input:** Capture frames from a webcam, video file, or RTSP camera.
-2. **Detection:** YOLOv8 identifies supported objects in each frame.
-3. **Tracking:** Associate detections across frames and estimate object trajectories.
-4. **Collision analysis:** Evaluate temporal motion and collision indicators.
-5. **Severity assessment:** Score candidate incidents using configured heuristics.
-6. **Incident management:** Track incident states and confirm events.
-7. **Evidence collection:** Save the selected impact frame and surrounding video footage.
-8. **Alert delivery:** Route incident information to the WhatsApp microservice.
-9. **Monitoring:** Display annotated frames and diagnostic information when enabled.
+| Incident category | Intended workflow |
+|---|---|
+| Potential serious accident | Escalation for emergency medical review |
+| Potential minor accident | Police or traffic-authority review |
+| Uncertain detection | Human verification |
+| False positive | Suppress escalation after verification |
 
-## ✨ Key Features
+The categories and escalation rules must be implemented and validated against the actual detection pipeline. A computer vision prediction alone cannot reliably establish injury severity.
 
-- **Temporal Object Tracking:** IoU-based association and velocity estimation for tracking objects across frames.
-- **Accident Detection:** Evaluates collision indicators across a temporal window instead of relying solely on individual frames.
-- **Severity Classification:** Supports LOW, MEDIUM, HIGH, and CRITICAL incident levels based on configured collision and scene-related indicators.
-- **Automated Evidence Collection:** Saves impact frames and surrounding video clips to the local `evidence/` directory.
-- **WhatsApp Notifications:** Uses a Node.js `whatsapp-web.js` microservice with QR-code authentication.
-- **Non-Blocking Processing:** Background workers handle evidence and notification tasks to reduce interruptions to the inference loop.
-- **OpenCV Visualization:** Provides an annotated video window and real-time diagnostics.
-- **Modular Architecture:** Separates detection, tracking, accident analysis, alerts, evidence, and video input into independent modules.
+### 4. WhatsApp Notification Workflow
 
-## 🚀 Installation
+NexGuard is designed to support incident notifications through a configured WhatsApp integration.
 
-### 1. Prerequisites
+A notification workflow may include:
 
-- Python 3.8 or later, compatible with the project's dependencies.
-- Node.js and npm compatible with the WhatsApp bot dependencies.
-- FFmpeg and the required OpenCV system libraries.
-- A webcam, RTSP camera, or test video.
-- A compatible YOLO model.
+- Incident classification.
+- Detection timestamp.
+- Camera or location identifier, when available.
+- Confidence or verification status.
+- Relevant incident details.
+- Configured recipient and escalation rules.
 
-On Ubuntu/Debian, install the common system dependencies:
+Actual delivery requires a working messaging integration, valid credentials, authorized recipients, and appropriate provider configuration. A terminal message alone does not confirm that an alert was delivered.
+
+### 5. Terminal-Based Execution
+
+The project is designed to run through Python rather than requiring a browser-based interface.
+
+Example command:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y ffmpeg libsm6 libxext6
+python main.py
 ```
 
-Install Chromium if required by your WhatsApp bot configuration and your distribution provides it:
+The terminal can be used to observe startup messages, model initialization, detection events, and integration status, depending on the current implementation.
 
-```bash
-sudo apt-get install -y chromium
+### 6. Custom Model Training
+
+A custom accident-detection model can be trained using an appropriately labeled dataset supported by the chosen YOLO training framework.
+
+Training requires:
+
+- A dataset containing relevant accident and non-accident examples.
+- Consistent annotation and class definitions.
+- Training, validation, and test splits.
+- A compatible dataset configuration file.
+- Evaluation on footage that was not used for training.
+
+The dataset must match the structure expected by the training code.
+
+---
+
+## System Architecture
+
+The following Mermaid diagram shows the high-level accident detection and notification workflow.
+
+```mermaid id="0v6f7q"
+flowchart LR
+    A["CCTV / Video Input"] --> B["Frame Processing"]
+    B --> C["YOLO Object Detection"]
+    C --> D["Accident Event Analysis"]
+    D --> E{"Incident Classification"}
+
+    E -->|Potential Serious| F["Emergency Alert Workflow"]
+    E -->|Potential Minor| G["Police / Traffic Alert"]
+    E -->|Uncertain| H["Human Verification"]
+
+    F --> I["WhatsApp Integration"]
+    G --> I
+    H --> J["Operator Review"]
+    I --> K["Delivery Status / Logs"]
 ```
 
-### 2. Clone the Repository
+### Architecture Components
+
+| Component | Responsibility |
+|---|---|
+| Video input | Receives CCTV footage or compatible video input |
+| Frame processing | Prepares frames for inference |
+| YOLO detector | Produces object detections |
+| Accident analysis | Evaluates detections for possible accident events |
+| Classification | Applies configured incident categories and rules |
+| Notification workflow | Selects the appropriate configured alert path |
+| WhatsApp integration | Sends messages through the connected service |
+| Logging and review | Records events and supports operator verification |
+
+This is a logical architecture. Actual data flow, severity classification, logging, and alert delivery depend on the modules implemented in the repository.
+
+---
+
+## Technology Stack
+
+| Technology | Purpose |
+|---|---|
+| Python | Main application language |
+| YOLO | Object detection |
+| OpenCV | Video and frame processing |
+| PyTorch | Model inference and training, when used by the selected YOLO framework |
+| NumPy | Numerical and array operations, when required |
+| WhatsApp integration | Incident notifications through a configured provider |
+| Pytest | Automated testing, if configured |
+
+---
+
+## Project Structure
+
+The following is a suggested structure. Keep it aligned with the files actually present in the repository.
+
+```text
+NexGuard/
+├── main.py
+├── requirements.txt
+├── README.md
+├── models/
+├── datasets/
+│   ├── images/
+│   └── labels/
+├── tests/
+└── .gitignore
+```
+
+### Important Files
+
+| File or directory | Purpose |
+|---|---|
+| `main.py` | Application entry point |
+| `requirements.txt` | Python dependencies |
+| `models/` | Model weights or model-related files, if used |
+| `datasets/` | Training and evaluation data, if included locally |
+| `tests/` | Automated tests, if implemented |
+| `README.md` | Project documentation |
+
+Do not commit large datasets, private CCTV footage, API credentials, or model files unless their distribution is appropriate.
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+Install:
+
+- Python 3.10 or later, subject to dependency compatibility.
+- pip.
+- Git.
+- A compatible YOLO model and its required dependencies.
+- A compatible video input source.
+
+For custom training, additional GPU resources may improve performance, but the actual requirements depend on model size and dataset scale.
+
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/reddy895/NexGuard.git
 cd NexGuard
 ```
 
-### 3. Create a Python Environment
+### 2. Create a Virtual Environment
+
+Linux:
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+### 3. Install Dependencies
+
+```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Configure the WhatsApp Bot
+If dependency installation fails, verify that your Python version is supported by the installed model framework and all pinned packages.
 
-```bash
-cd whatsapp_bot
-npm install
-cd ..
-```
+### 4. Configure the Model and Input
 
-Use `npm install --ignore-scripts` only if the project's setup instructions require it. Some packages need installation scripts to download or configure runtime dependencies.
+Before starting the application, confirm that:
 
-### 5. Configure Environment Variables
+- The configured model weights exist.
+- The video input source is accessible.
+- Required dependencies are installed.
+- Any required environment variables are configured.
+- The accident-detection dataset is available if custom training is required.
 
-Create a local environment file from the example:
+Use the model path and input settings expected by the current code.
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and configure the appropriate settings, including:
-
-- YOLO model path.
-- Default video source.
-- WhatsApp enable/disable setting.
-- Emergency contact number.
-- Accident confidence and severity thresholds, if supported by your configuration.
-
-Use the variable names defined in your actual `.env.example` and `config.py`. Do not commit `.env`, WhatsApp session credentials, or authentication data to GitHub.
-
-## 💻 Usage
-
-Activate your virtual environment before running NexGuard.
-
-### Run With the Default Webcam
+### 5. Run NexGuard
 
 ```bash
 python main.py
 ```
 
-### Run With a Video File
-
-```bash
-python main.py --source test_clips/road.mp4
-```
-
-### Run With an RTSP Camera
-
-```bash
-python main.py --source "rtsp://username:password@CAMERA_IP:554/stream"
-```
-
-Replace the credentials, camera address, and stream path with your actual camera settings.
-
-### Run Without the OpenCV Display
-
-```bash
-python main.py --no-display
-```
-
-### Display Available Options
-
-```bash
-python main.py --help
-```
-
-### Test WhatsApp Integration
-
-If the repository contains `send_test_message.py`, run:
-
-```bash
-python send_test_message.py --target YOUR_TEST_NUMBER
-```
-
-Use the phone-number format expected by the script. Verify the WhatsApp session and recipient configuration before enabling automated alerts.
-
-## 🛠️ Project Structure
-
-```text
-NexGuard/
-├── main.py
-├── config.py
-├── requirements.txt
-├── .env.example
-│
-├── nexguard/
-│   ├── accident/
-│   │   ├── severity.py
-│   │   └── event.py
-│   ├── alerts/
-│   ├── detection/
-│   ├── evidence/
-│   ├── input/
-│   ├── models/
-│   ├── tracking/
-│   ├── utils/
-│   └── visualization/
-│
-├── whatsapp_bot/
-├── tests/
-├── scripts/
-│   └── train_accident_model.py
-├── datasets/
-│   └── README.md
-├── test_clips/
-└── README.md
-```
-
-*This tree illustrates the intended module organization. Actual filenames and optional files may differ in the repository.*
-
-## 🧪 Testing
-
-Run the local test suite:
-
-```bash
-python -m pytest tests/ -v
-```
-
-To run the tests with additional diagnostic output:
-
-```bash
-python -m pytest tests/ -vv
-```
-
-The test suite is intended to validate core functionality without requiring a live camera or WhatsApp connection. Individual tests may still require dependencies or fixtures documented by the repository.
-
-## 🧠 Custom Accident Model Training
-
-NexGuard uses YOLO-based object detection. A general-purpose pretrained model such as `yolov8n.pt` is not, by itself, a reliable traffic-accident classifier. Accident detection depends on the trained model, temporal heuristics, and validation against representative footage.
-
-### 1. Prepare the Dataset
-
-Review the dataset instructions:
-
-```bash
-cat datasets/README.md
-```
-
-Ensure the dataset is organized according to the format expected by the training script and that `datasets/accident/data.yaml` exists.
-
-### 2. Train the Model
-
-```bash
-python scripts/train_accident_model.py \
-  --data datasets/accident/data.yaml \
-  --epochs 100
-```
-
-The dataset must contain suitable labeled examples and the class definitions expected by the detector and accident-analysis modules.
-
-### 3. Configure the Trained Weights
-
-After training, identify the actual output weights, such as `best.pt`, and update `.env`:
-
-```dotenv
-NEXGUARD_MODEL_PATH=path/to/your/best.pt
-```
-
-Replace the example path with the real path to your trained weights. Confirm that `config.py` reads this exact environment variable.
-
-### 4. Validate the Model
-
-Evaluate the trained model on separate validation footage, including normal traffic, near misses, different camera angles, low-light scenes, and genuine collision footage where available.
-
-Measure false positives and missed incidents before using the system in real-world surveillance.
-
-## 🔐 Safety and Deployment Notes
-
-- NexGuard should be treated as an assistive detection system, not a replacement for verified emergency dispatch.
-- Validate incident alerts with representative footage before enabling operational notifications.
-- Use explicit severity thresholds and carefully tested routing rules.
-- Protect camera credentials, contact numbers, WhatsApp sessions, and stored evidence.
-- Configure evidence retention and access controls according to applicable privacy requirements.
-- Do not assume an alert has been delivered merely because an event was detected; record delivery status and handle failures where supported.
-
-## 🤝 Contributing
-
-Contributions that improve detection accuracy, tracking stability, evidence reliability, test coverage, and alert delivery are welcome.
-
-1. Fork the repository.
-2. Create a feature branch.
-3. Make focused changes and add tests.
-4. Run the test suite.
-5. Submit a pull request describing the change and its validation.
-
-## 📄 License
-
-Add the project's selected license and corresponding `LICENSE` file before distributing NexGuard. Until then, do not assume that the repository is released under a particular open-source license.
+Observe the terminal output for initialization messages, model loading, detection events, and notification integration status.
 
 ---
 
-**NexGuard — Detect incidents. Preserve evidence. Accelerate response.**
+## Configuration
+
+Configuration depends on the implementation in the repository.
+
+Potential settings include:
+
+| Setting | Purpose |
+|---|---|
+| Model path | Selects YOLO model weights |
+| Video source | Selects a video file, camera, or stream |
+| Confidence threshold | Controls the minimum detection confidence |
+| Incident rules | Defines how detections are evaluated |
+| Recipient configuration | Identifies authorized alert recipients |
+| Messaging credentials | Enables the configured notification provider |
+| Logging settings | Controls incident records and diagnostic output |
+
+Use environment variables or a protected configuration file for secrets.
+
+Example `.env` structure, if supported by the application:
+
+```env
+MODEL_PATH=models/best.pt
+VIDEO_SOURCE=0
+WHATSAPP_ENABLED=false
+```
+
+These are illustrative variable names. Add them to your environment only if the application reads them, and use the exact names expected by the code.
+
+**Never commit real API tokens, messaging credentials, private phone numbers, or secret keys.**
+
+---
+
+## How It Works
+
+1. **Video Acquisition:** The application receives video from a supported input source.
+2. **Frame Processing:** Frames are prepared for model inference.
+3. **Object Detection:** YOLO predicts objects and their associated detections.
+4. **Accident Analysis:** The application evaluates detection results using its configured incident logic.
+5. **Classification:** Potential events are assigned categories when supported by the implementation.
+6. **Notification Selection:** The configured rules select the appropriate alert workflow.
+7. **Alert Delivery:** The messaging integration attempts to deliver an incident notification.
+8. **Monitoring:** Logs and delivery status help operators review the event.
+
+Each stage should be tested independently before connecting the system to a live surveillance or emergency workflow.
+
+---
+
+## Testing
+
+If the repository includes a Pytest suite, run:
+
+```bash
+python -m pytest -v
+```
+
+Recommended validation areas include:
+
+- Model loading and inference.
+- Video input handling.
+- Detection confidence thresholds.
+- Accident-event classification.
+- False-positive and false-negative behavior.
+- Incident severity rules.
+- Messaging integration failures.
+- Missing or invalid configuration.
+- Logging and error recovery.
+
+Evaluate the system on representative footage that was not used during training. Report precision, recall, false-positive rates, and detection latency when these metrics have actually been measured.
+
+---
+
+## Deployment
+
+NexGuard is primarily a Python computer vision application.
+
+Potential deployment environments include:
+
+- Local development machines.
+- Compatible GPU-enabled workstations.
+- Edge-computing devices connected to supported cameras.
+- Dedicated servers processing authorized CCTV streams.
+
+### Deployment Checklist
+
+- Verify model compatibility and inference performance.
+- Configure the video source securely.
+- Protect messaging credentials.
+- Test notification delivery with non-emergency recipients.
+- Add logging and error handling.
+- Verify incident classification against representative footage.
+- Provide human review for uncertain or high-impact events.
+- Obtain authorization before processing CCTV footage.
+
+A production deployment requires more than a successful local model run. It needs reliable input handling, validated detection logic, secure configuration, operational monitoring, and tested notification delivery.
+
+---
+
+## Safety and Limitations
+
+NexGuard is an experimental decision-support system and must not be treated as a fully autonomous emergency-dispatch system without extensive validation and appropriate authorization.
+
+- Object detection does not independently prove that an accident occurred.
+- Video alone may not establish injury severity.
+- Poor lighting, occlusion, camera placement, and low-quality footage can affect accuracy.
+- False positives can generate unnecessary alerts.
+- False negatives can cause incidents to be missed.
+- Messaging providers may experience delivery failures or delays.
+- Emergency notifications must use verified recipients and approved procedures.
+- Human operators should review uncertain detections and high-impact alerts.
+- CCTV footage and incident records must be handled in accordance with applicable privacy and legal requirements.
+
+Do not rely on NexGuard as the sole means of detecting accidents or contacting emergency services.
+
+---
+
+## Future Scope
+
+Potential future improvements include:
+
+- Multi-camera monitoring.
+- Tracking objects across consecutive frames.
+- Temporal accident recognition.
+- Improved severity estimation with validated supporting evidence.
+- Edge inference optimization.
+- Secure incident dashboards.
+- Configurable alert escalation policies.
+- Notification delivery acknowledgements.
+- Incident history and analytics.
+- Model evaluation dashboards.
+- Privacy-aware video retention and access controls.
+- Robust testing on diverse real-world road conditions.
+
+---
+
+## Contributing
+
+Contributions, bug reports, and suggestions are welcome.
+
+1. Fork the repository.
+2. Create a feature branch.
+3. Make your changes.
+4. Run relevant tests.
+5. Commit with a descriptive message.
+6. Submit a pull request.
+
+Example:
+
+```bash
+git checkout -b feature/your-feature
+git add .
+git commit -m "feat: describe your change"
+git push origin feature/your-feature
+```
+
+Please avoid committing credentials, private surveillance footage, or sensitive incident information.
+
+---
+
+## Team
+
+- **PRAVEEN**
+
+---
+
+## License
+
+See the repository's `LICENSE` file for the applicable licensing terms. If no license has been added, specify the intended license before presenting the project as open source.
+
+---
+
+## Author and Repository
+
+**GitHub:** [reddy895/NexGuard](https://github.com/reddy895/NexGuard)
+
+---
+
+<p align="center">
+  <strong>NexGuard</strong><br />
+  AI-assisted road safety through computer vision and incident awareness.
+</p>
