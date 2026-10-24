@@ -1,0 +1,128 @@
+"""
+NexGuard — Monotonic Inference Rate Limiter
+============================================
+Enforces a strict maximum of 15 processed inference operations per rolling
+one-second window using a monotonic clock.
+
+Design Principles:
+- Hard rate limit: Never begin more than MAX_FPS (15) inferences in any rolling 1.0s interval.
+- Monotonic clock: Immune to system clock adjustments or daylight savings shifts.
+- Pacing without bursting: Enforces minimum inter-frame spacing (1.0 / MAX_FPS) to prevent
+  bursting 15 frames at millisecond intervals and freezing for the remainder of the second.
+- Graceful degradation: When inference is slow (> 1/15s), the rate naturally decreases
+  below 15 FPS without queue buildup.
+- Clock injection: Accepts custom clock and sleep callables for deterministic unit testing.
+"""
+
+from __future__ import annotations
+
+import collections
+import threading
+import time
+from typing import Callable, Deque, Optional, Tuple
+
+from config import MAX_FPS
+from nexguard.utils.logging import get_logger
+
+log = get_logger("nexguard.rate_limiter")
+
+
+class MonotonicRateLimiter:
+    """
+    Precision rate limiter enforcing a strict maximum of MAX_FPS inference calls
+    in any rolling one-second interval.
+    """
+
+    def __init__(
+        self,
+        max_fps: int = MAX_FPS,
+        window_seconds: float = 1.0,
+        clock_fn: Callable[[], float] = time.monotonic,
+        sleep_fn: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self.max_fps: int = min(max_fps, MAX_FPS)
+        self.window_seconds: float = float(window_seconds)
+        self.min_interval: float = 1.0 / float(self.max_fps) if self.max_fps > 0 else 0.0
+
+        self._clock: Callable[[], float] = clock_fn
+        self._sleep: Callable[[float], None] = sleep_fn
+
+        self._inference_timestamps: Deque[float] = collections.deque()
+        self._last_inference_start: float = -1.0
+        self._lock: threading.Lock = threading.Lock()
+
+        # Telemetry
+        self._total_frames_seen: int = 0
+        self._total_inferences: int = 0
+        self._total_skipped: int = 0
+
+    def purge_old_timestamps(self, now: float) -> None:
+        """Removes timestamps outside the rolling window."""
+        cutoff = now - self.window_seconds
+        while self._inference_timestamps and self._inference_timestamps[0] <= cutoff:
+            self._inference_timestamps.popleft()
+
+    def can_process_now(self) -> bool:
+        """
+        Returns True if an inference operation can start immediately without violating
+        the rolling 1-second limit or bursting constraints.
+        """
+        with self._lock:
+            now = self._clock()
+            self.purge_old_timestamps(now)
+            if len(self._inference_timestamps) >= self.max_fps:
+                return False
+            if self._last_inference_start > 0 and (now - self._last_inference_start) < (self.min_interval * 0.95):
+                return False
+            return True
+
+    def acquire(self, blocking: bool = True) -> bool:
+        """
+        Requests permission to begin an inference operation.
+
+        If blocking=True:
+            Sleeps the required duration to respect both the inter-frame pacing
+            and rolling 1-second limit, ensuring no more than max_fps inferences
+            occur in any rolling one-second interval.
+
+        If blocking=False:
+            Returns True immediately if allowed, False if capacity is exceeded.
+
+        Returns:
+            True if inference may proceed; False otherwise.
+        """
+        with self._lock:
+            while True:
+                now = self._clock()
+                self.purge_old_timestamps(now)
+
+                # Check rolling 1-second capacity
+                if len(self._inference_timestamps) >= self.max_fps:
+                    if not blocking:
+                        self._total_skipped += 1
+                        return False
+                    # Must wait until oldest timestamp in window expires
+                    earliest = self._inference_timestamps[0]
+                    sleep_time = (earliest + self.window_seconds) - now
+                    if sleep_time > 0:
+                        self._sleep(sleep_time)
+                    continue
+
+                # Check inter-frame pacing (prevent bursting)
+                if self._last_inference_start > 0:
+                    elapsed_since_last = now - self._last_inference_start
+                    if elapsed_since_last < self.min_interval:
+                        needed = self.min_interval - elapsed_since_last
+                        if not blocking:
+                            self._total_skipped += 1
+                            return False
+                        self._sleep(needed)
+                        continue
+
+                # Record successful acquisition
+                now_acquired = self._clock()
+                self.purge_old_timestamps(now_acquired)
+                self._inference_timestamps.append(now_acquired)
+                self._last_inference_start = now_acquired
+                self._total_inferences += 1
+                return True
