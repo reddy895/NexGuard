@@ -55,6 +55,8 @@ class MonotonicRateLimiter:
         self._total_frames_seen: int = 0
         self._total_inferences: int = 0
         self._total_skipped: int = 0
+        self._slow_inference_count: int = 0
+        self._total_inference_time_s: float = 0.0
 
     def purge_old_timestamps(self, now: float) -> None:
         """Removes timestamps outside the rolling window."""
@@ -186,6 +188,21 @@ class MonotonicRateLimiter:
     def total_frames_seen(self) -> int:
         return self._total_frames_seen
 
+    def record_inference_completion(self, duration_s: float) -> None:
+        """
+        Records the duration of an inference operation.
+        If duration_s exceeds the minimum frame interval (1/15s), logs and records
+        that hardware compute is naturally throttling FPS below MAX_FPS.
+        """
+        with self._lock:
+            self._total_inference_time_s += duration_s
+            if duration_s > self.min_interval:
+                self._slow_inference_count += 1
+                log.debug(
+                    f"Inference duration ({duration_s*1000:.1f}ms) exceeded pacing interval "
+                    f"({self.min_interval*1000:.1f}ms). Effective FPS naturally reduces."
+                )
+
     @property
     def total_inferences(self) -> int:
         return self._total_inferences
@@ -193,6 +210,16 @@ class MonotonicRateLimiter:
     @property
     def total_skipped(self) -> int:
         return self._total_skipped
+
+    @property
+    def slow_inference_count(self) -> int:
+        return self._slow_inference_count
+
+    @property
+    def mean_inference_time_ms(self) -> float:
+        if self._total_inferences == 0:
+            return 0.0
+        return (self._total_inference_time_s / float(self._total_inferences)) * 1000.0
 
     @property
     def skip_ratio(self) -> float:
@@ -208,6 +235,8 @@ class MonotonicRateLimiter:
             "total_frames_seen": self._total_frames_seen,
             "total_inferences": self._total_inferences,
             "total_skipped": self._total_skipped,
+            "slow_inferences": self._slow_inference_count,
+            "mean_inference_time_ms": round(self.mean_inference_time_ms, 1),
             "skip_ratio": round(self.skip_ratio, 3),
         }
 
@@ -219,3 +248,5 @@ class MonotonicRateLimiter:
             self._total_frames_seen = 0
             self._total_inferences = 0
             self._total_skipped = 0
+            self._slow_inference_count = 0
+            self._total_inference_time_s = 0.0

@@ -340,6 +340,7 @@ def run(args: argparse.Namespace) -> int:
 
             # ── Detection ──────────────────────────────────────────────────────
             detections = detector.detect(frame, frame_number=frame_index)
+            rate_limiter.record_inference_completion(detector.last_inference_time_ms / 1000.0)
 
             # ── Tracking ──────────────────────────────────────────────────────
             tracks = tracker.update(detections)
