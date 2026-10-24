@@ -168,3 +168,54 @@ class MonotonicRateLimiter:
         if allowed:
             return True, "PROCESSED_FILE"
         return False, "SKIPPED_CAPACITY"
+
+    @property
+    def current_fps(self) -> float:
+        """
+        Calculates actual processed inference FPS over the rolling window.
+        """
+        with self._lock:
+            now = self._clock()
+            self.purge_old_timestamps(now)
+            count = len(self._inference_timestamps)
+            if count == 0:
+                return 0.0
+            return float(count) / self.window_seconds
+
+    @property
+    def total_frames_seen(self) -> int:
+        return self._total_frames_seen
+
+    @property
+    def total_inferences(self) -> int:
+        return self._total_inferences
+
+    @property
+    def total_skipped(self) -> int:
+        return self._total_skipped
+
+    @property
+    def skip_ratio(self) -> float:
+        if self._total_frames_seen == 0:
+            return 0.0
+        return float(self._total_skipped) / float(self._total_frames_seen)
+
+    def metrics_summary(self) -> dict:
+        """Returns telemetry snapshot of the rate limiter."""
+        return {
+            "current_inference_fps": round(self.current_fps, 1),
+            "max_fps_limit": self.max_fps,
+            "total_frames_seen": self._total_frames_seen,
+            "total_inferences": self._total_inferences,
+            "total_skipped": self._total_skipped,
+            "skip_ratio": round(self.skip_ratio, 3),
+        }
+
+    def reset(self) -> None:
+        """Resets all rate limiter counters and history."""
+        with self._lock:
+            self._inference_timestamps.clear()
+            self._last_inference_start = -1.0
+            self._total_frames_seen = 0
+            self._total_inferences = 0
+            self._total_skipped = 0
