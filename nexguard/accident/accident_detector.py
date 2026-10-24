@@ -34,7 +34,13 @@ from datetime import datetime
 from typing import Deque, Dict, List, Optional, Tuple
 
 from config import cfg
-from nexguard.models.schemas import AccidentEvent, DetectionMode, EventType, Track
+from nexguard.models.schemas import (
+    AccidentEvent,
+    DetectionMode,
+    EventCertainty,
+    EventType,
+    Track,
+)
 from nexguard.utils.logging import get_logger
 
 log = get_logger("nexguard.accident")
@@ -218,17 +224,23 @@ class AccidentDetector:
                     best_conf = conf
                     cx = (t1.cx + t2.cx) / 2
                     cy = (t1.cy + t2.cy) / 2
+                    certainty = (
+                        EventCertainty.CONFIRMED
+                        if conf >= self._threshold
+                        else (EventCertainty.POSSIBLE if conf >= 0.25 else EventCertainty.UNKNOWN)
+                    )
                     best_event = AccidentEvent(
                         accident_detected=conf >= self._threshold,
                         confidence=conf,
                         timestamp=datetime.now().isoformat(),
                         track_ids=[t1.track_id, t2.track_id],
                         location={"cx": round(cx, 1), "cy": round(cy, 1)},
-                        event_type=etype,
+                        event_type=etype if conf >= self._threshold else EventType.POSSIBLE_ACCIDENT,
                         signals=signals,
                         frame_index=self._frame_index,
                         detection_mode=DetectionMode.HEURISTIC,
                         is_model_confirmed=False,
+                        certainty=certainty,
                     )
 
         # 3. Single-vehicle sudden-stop (potential collision with static barrier/pole)
@@ -236,17 +248,23 @@ class AccidentDetector:
             conf, signals = self._score_sudden_stop(t)
             if conf > best_conf:
                 best_conf = conf
+                certainty = (
+                    EventCertainty.CONFIRMED
+                    if conf >= self._threshold
+                    else (EventCertainty.POSSIBLE if conf >= 0.25 else EventCertainty.UNKNOWN)
+                )
                 best_event = AccidentEvent(
                     accident_detected=conf >= self._threshold,
                     confidence=conf,
                     timestamp=datetime.now().isoformat(),
                     track_ids=[t.track_id],
                     location={"cx": round(t.cx, 1), "cy": round(t.cy, 1)},
-                    event_type=EventType.SUDDEN_STOP,
+                    event_type=EventType.SUDDEN_STOP if conf >= self._threshold else EventType.POSSIBLE_ACCIDENT,
                     signals=signals,
                     frame_index=self._frame_index,
                     detection_mode=DetectionMode.HEURISTIC,
                     is_model_confirmed=False,
+                    certainty=certainty,
                 )
 
         return best_event
@@ -264,6 +282,11 @@ class AccidentDetector:
                 best_track = t
 
         if best_track is not None:
+            certainty = (
+                EventCertainty.CONFIRMED
+                if best_conf >= self._threshold
+                else EventCertainty.POSSIBLE
+            )
             return AccidentEvent(
                 accident_detected=best_conf >= self._threshold,
                 confidence=best_conf,
@@ -278,6 +301,7 @@ class AccidentDetector:
                 frame_index=self._frame_index,
                 detection_mode=DetectionMode.TRAINED_MODEL,
                 is_model_confirmed=True,
+                certainty=certainty,
             )
         return None
 

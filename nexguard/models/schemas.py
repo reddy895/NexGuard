@@ -62,6 +62,13 @@ class DetectionMode(str, Enum):
     DIAGNOSTIC = "diagnostic"
 
 
+class EventCertainty(str, Enum):
+    """Certainty level of detected safety event."""
+    CONFIRMED = "confirmed"
+    POSSIBLE = "possible"
+    UNKNOWN = "unknown"
+
+
 @dataclass
 class ModelDiagnosticInfo:
     """Detailed startup diagnostic metadata for loaded model and dataset."""
@@ -251,6 +258,7 @@ class AccidentEvent:
     frame_index: int = 0
     detection_mode: DetectionMode = DetectionMode.HEURISTIC
     is_model_confirmed: bool = False
+    certainty: EventCertainty = EventCertainty.POSSIBLE
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -260,6 +268,7 @@ class AccidentEvent:
             "track_ids": self.track_ids,
             "location": self.location,
             "event_type": self.event_type.value,
+            "certainty": self.certainty.value,
             "signals": self.signals,
             "frame_index": self.frame_index,
             "detection_mode": self.detection_mode.value,
