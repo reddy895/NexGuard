@@ -54,22 +54,30 @@ def _iou(
     b1: Tuple[float, float, float, float],
     b2: Tuple[float, float, float, float],
 ) -> float:
-    x1, y1 = max(b1[0], b2[0]), max(b1[1], b2[1])
-    x2, y2 = min(b1[2], b2[2]), min(b1[3], b2[3])
-    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
-    a1 = max(0.0, (b1[2] - b1[0]) * (b1[3] - b1[1]))
-    a2 = max(0.0, (b2[2] - b2[0]) * (b2[3] - b2[1]))
-    union = a1 + a2 - inter
-    return inter / union if union > 0 else 0.0
+    try:
+        x1, y1 = max(b1[0], b2[0]), max(b1[1], b2[1])
+        x2, y2 = min(b1[2], b2[2]), min(b1[3], b2[3])
+        inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        a1 = max(0.0, (b1[2] - b1[0]) * (b1[3] - b1[1]))
+        a2 = max(0.0, (b2[2] - b2[0]) * (b2[3] - b2[1]))
+        union = a1 + a2 - inter
+        val = inter / union if union > 0 else 0.0
+        return val if math.isfinite(val) else 0.0
+    except Exception:
+        return 0.0
 
 
 def _dist(
     b1: Tuple[float, float, float, float],
     b2: Tuple[float, float, float, float],
 ) -> float:
-    cx1, cy1 = (b1[0] + b1[2]) / 2, (b1[1] + b1[3]) / 2
-    cx2, cy2 = (b2[0] + b2[2]) / 2, (b2[1] + b2[3]) / 2
-    return math.hypot(cx2 - cx1, cy2 - cy1)
+    try:
+        cx1, cy1 = (b1[0] + b1[2]) / 2, (b1[1] + b1[3]) / 2
+        cx2, cy2 = (b2[0] + b2[2]) / 2, (b2[1] + b2[3]) / 2
+        d = math.hypot(cx2 - cx1, cy2 - cy1)
+        return d if math.isfinite(d) else 9999.0
+    except Exception:
+        return 9999.0
 
 
 def _approach_velocity(t1: Track, t2: Track) -> float:
@@ -77,21 +85,32 @@ def _approach_velocity(t1: Track, t2: Track) -> float:
     Estimates how fast two objects are moving toward each other.
     Positive value means they are closing.
     """
-    dx = t2.cx - t1.cx
-    dy = t2.cy - t1.cy
-    dist = math.hypot(dx, dy)
-    if dist < 1e-6:
+    try:
+        dx = t2.cx - t1.cx
+        dy = t2.cy - t1.cy
+        if not (math.isfinite(dx) and math.isfinite(dy)):
+            return 0.0
+        dist = math.hypot(dx, dy)
+        if dist < 1e-6:
+            return 0.0
+        # Unit vector from t1 to t2
+        ux, uy = dx / dist, dy / dist
+        v1x, v1y = t1.velocity if t1.velocity else (0.0, 0.0)
+        v2x, v2y = t2.velocity if t2.velocity else (0.0, 0.0)
+        if not (math.isfinite(v1x) and math.isfinite(v1y) and math.isfinite(v2x) and math.isfinite(v2y)):
+            return 0.0
+        v1_closing = v1x * ux + v1y * uy
+        v2_closing = -(v2x * ux + v2y * uy)
+        closing = v1_closing + v2_closing
+        return closing if math.isfinite(closing) else 0.0
+    except Exception:
         return 0.0
-    # Unit vector from t1 to t2
-    ux, uy = dx / dist, dy / dist
-    # Project each velocity onto the closing axis
-    v1_closing = t1.velocity[0] * ux + t1.velocity[1] * uy
-    v2_closing = -(t2.velocity[0] * ux + t2.velocity[1] * uy)
-    return v1_closing + v2_closing
 
 
 def _heading_diff(h1: float, h2: float) -> float:
     """Smallest angular difference between two headings (0–180°)."""
+    if not (math.isfinite(h1) and math.isfinite(h2)):
+        return 0.0
     diff = abs(h1 - h2) % 360
     return min(diff, 360 - diff)
 
