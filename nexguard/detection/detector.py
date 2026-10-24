@@ -11,6 +11,7 @@ Design decisions:
 - verbose=False to suppress per-frame YOLO logging noise.
 """
 
+import threading
 from pathlib import Path
 from typing import List, Optional
 
@@ -57,6 +58,7 @@ class ObjectDetector:
         self._class_names: dict = {}
         self.diagnostic_info: Optional[ModelDiagnosticInfo] = None
         self.last_inference_time_ms: float = 0.0
+        self._inference_lock: threading.Lock = threading.Lock()
 
         self._load_model()
 
@@ -242,30 +244,31 @@ class ObjectDetector:
 
         import time
         t0 = time.monotonic()
-        try:
-            results = self.model(
-                processed_frame,
-                verbose=False,
-                conf=self.conf,
-                iou=self.iou,
-                imgsz=self.imgsz,
-                device=self.device,
-            )[0]
-        except Exception as e:
-            err_name = type(e).__name__
-            if "out of memory" in str(e).lower() or "OutOfMemory" in err_name:
-                log.error(f"Inference OOM on device '{self.device}': {e}. Frame skipped.")
-                try:
-                    import torch
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except Exception:
-                    pass
-            else:
-                log.warning(f"Detection error on frame: {e} ({err_name})")
-            return []
-        finally:
-            self.last_inference_time_ms = (time.monotonic() - t0) * 1000.0
+        with self._inference_lock:
+            try:
+                results = self.model(
+                    processed_frame,
+                    verbose=False,
+                    conf=self.conf,
+                    iou=self.iou,
+                    imgsz=self.imgsz,
+                    device=self.device,
+                )[0]
+            except Exception as e:
+                err_name = type(e).__name__
+                if "out of memory" in str(e).lower() or "OutOfMemory" in err_name:
+                    log.error(f"Inference OOM on device '{self.device}': {e}. Frame skipped.")
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                else:
+                    log.warning(f"Detection error on frame: {e} ({err_name})")
+                return []
+            finally:
+                self.last_inference_time_ms = (time.monotonic() - t0) * 1000.0
 
         detections: List[Detection] = []
         target_classes = set(cfg.all_target_classes)
