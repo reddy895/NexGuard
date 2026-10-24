@@ -136,7 +136,12 @@ class _IoUTracker:
                 if j in matched_det_indices:
                     continue
                 det = detections[j]
-                if track.class_name != det.class_name:
+                # Allow matching if classes are identical or both belong to the vehicle category
+                classes_match = (
+                    track.class_name == det.class_name
+                    or (track.is_vehicle and det.class_name in cfg.vehicle_classes)
+                )
+                if not classes_match:
                     continue
                 self._update_track(track, det)
                 matched_track_ids.add(track.track_id)
@@ -174,6 +179,7 @@ class _IoUTracker:
             age=1,
             is_vehicle=det.class_name in cfg.vehicle_classes,
             is_person=det.class_name in cfg.person_classes,
+            is_accident=det.is_accident or (det.class_name in cfg.accident_classes),
         )
         self._tracks[self._next_id] = track
         self._next_id += 1
@@ -189,6 +195,10 @@ class _IoUTracker:
         heading = math.degrees(math.atan2(vy, vx))
 
         track.bbox = det.bbox
+        track.class_name = det.class_name
+        track.is_vehicle = det.class_name in cfg.vehicle_classes
+        track.is_person = det.class_name in cfg.person_classes
+        track.is_accident = det.is_accident or (det.class_name in cfg.accident_classes)
         track.confidence = det.confidence
         track.velocity = (vx, vy)
         track.speed = speed
