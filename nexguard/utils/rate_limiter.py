@@ -126,3 +126,45 @@ class MonotonicRateLimiter:
                 self._last_inference_start = now_acquired
                 self._total_inferences += 1
                 return True
+
+    def record_frame_seen(self) -> None:
+        """Increments total frames received from the video source."""
+        with self._lock:
+            self._total_frames_seen += 1
+
+    def record_frame_skipped(self, reason: str = "rate_limit") -> None:
+        """Records a skipped frame."""
+        with self._lock:
+            self._total_skipped += 1
+
+    def should_process_frame(
+        self,
+        is_live: bool = False,
+        drop_on_saturation: bool = True,
+    ) -> Tuple[bool, str]:
+        """
+        Determines whether a frame should undergo model inference.
+
+        Policy:
+        - Live sources (webcam, RTSP, HTTP): Non-blocking check. If capacity
+          is saturated or inter-frame pacing is violated, skips the frame
+          immediately to prevent queue buildup and latency accumulation.
+        - Prerecorded files: Uses pacing to process at up to MAX_FPS, preserving
+          frame progression and timestamps.
+
+        Returns:
+            (allow_inference: bool, status_reason: str)
+        """
+        self.record_frame_seen()
+
+        if is_live and drop_on_saturation:
+            allowed = self.acquire(blocking=False)
+            if allowed:
+                return True, "PROCESSED_LIVE"
+            return False, "SKIPPED_LIVE_RATE_LIMIT"
+
+        # Prerecorded file or blocking mode: pace smoothly up to max_fps
+        allowed = self.acquire(blocking=True)
+        if allowed:
+            return True, "PROCESSED_FILE"
+        return False, "SKIPPED_CAPACITY"
