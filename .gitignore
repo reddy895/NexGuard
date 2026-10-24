@@ -34,6 +34,7 @@ ENV/
 
 # Evidence files — locally generated
 evidence/incidents/
+evidence/diagnostics/
 !evidence/.gitkeep
 
 # Logs — locally generated
