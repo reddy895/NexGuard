@@ -19,7 +19,7 @@ from __future__ import annotations
 import collections
 import threading
 import time
-from typing import Callable, Deque, Optional, Tuple
+from typing import Callable, Deque, Dict, Optional, Tuple
 
 from config import MAX_FPS
 from nexguard.utils.logging import get_logger
@@ -250,3 +250,25 @@ class MonotonicRateLimiter:
             self._total_skipped = 0
             self._slow_inference_count = 0
             self._total_inference_time_s = 0.0
+
+
+class StreamInferenceLock:
+    """
+    Enforces that at most one inference worker processes any configured video
+    stream at a time, preventing unsafe concurrency on YOLO model instances.
+    """
+
+    _active_streams: Dict[str, threading.Lock] = {}
+    _registry_lock: threading.Lock = threading.Lock()
+
+    @classmethod
+    def get_lock(cls, stream_id: str) -> threading.Lock:
+        with cls._registry_lock:
+            if stream_id not in cls._active_streams:
+                cls._active_streams[stream_id] = threading.Lock()
+            return cls._active_streams[stream_id]
+
+    @classmethod
+    def release_stream(cls, stream_id: str) -> None:
+        with cls._registry_lock:
+            cls._active_streams.pop(stream_id, None)
