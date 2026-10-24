@@ -46,8 +46,27 @@ class AlertManager:
     def dispatch(self, incident: Incident) -> bool:
         """
         Dispatches an alert for a confirmed incident.
-        Returns True if at least one message was queued for sending.
+        Returns True if WhatsApp is connected and alert was dispatched.
+        Does NOT claim sent if WhatsApp is disconnected or disabled.
         """
+        if not self._notifier.enabled:
+            log.warning(
+                f"[ALERT] WhatsApp notifier disabled — alert {incident.incident_id} logged only"
+            )
+            incident.alert_status = "DISABLED"
+            self._log_alert(incident)
+            return False
+
+        if not self._notifier.is_connected:
+            bot_status = self._notifier.get_status()
+            log.warning(
+                f"[ALERT] WhatsApp bot not connected (status: {bot_status}) — "
+                f"alert for {incident.incident_id} not sent"
+            )
+            incident.alert_status = f"DISCONNECTED ({bot_status})"
+            self._log_alert(incident)
+            return False
+
         # Determine recipients
         contacts = cfg.get_contacts_for_severity(incident.severity.value)
         if not contacts:
@@ -59,20 +78,23 @@ class AlertManager:
             log.info(
                 f"[ALERT] LOW severity {incident.incident_id} — log only"
             )
+            incident.alert_status = "LOG_ONLY"
             self._log_alert(incident)
             return False
 
         message = self._build_message(incident)
 
+        dispatched_count = 0
         for contact in contacts:
             log.info(
                 f"[ALERT] Sending to +{contact} — "
                 f"{incident.incident_id} [{incident.severity.value}]"
             )
             self._notifier.send(contact, message)
+            dispatched_count += 1
 
         self._log_alert(incident)
-        return True
+        return dispatched_count > 0
 
     def _build_message(self, incident: Incident) -> str:
         """Builds a concise, structured WhatsApp alert message."""

@@ -115,6 +115,14 @@ class WhatsAppNotifier:
             pass
         return "OFFLINE"
 
+    @property
+    def is_connected(self) -> bool:
+        """Returns True only if WhatsApp bot is enabled, reachable, and authenticated."""
+        if not self.enabled:
+            return False
+        status = self.get_status().upper()
+        return status in ("READY", "CONNECTED", "AUTHENTICATED", "ONLINE")
+
     # ------------------------------------------------------------------ #
     #  Message dispatch                                                    #
     # ------------------------------------------------------------------ #
