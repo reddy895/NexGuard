@@ -112,22 +112,27 @@ class _IoUTracker:
             n_tracks = len(track_list)
             n_dets = len(detections)
 
-            # Build cost matrix (1 - IoU) with distance penalty
-            cost = np.ones((n_tracks, n_dets), dtype=np.float64)
+            # Build cost matrix: IoU takes priority (0.0 to 0.8), followed by centroid distance (0.8 to 0.99)
+            cost = np.full((n_tracks, n_dets), 2.0, dtype=np.float64)
             for i, track in enumerate(track_list):
                 for j, det in enumerate(detections):
                     iou_val = _iou(track.bbox, det.bbox)
                     dist = _centroid_dist(track.bbox, det.bbox)
-                    if iou_val >= self._iou_thresh or dist <= self._max_dist:
-                        cost[i, j] = 1.0 - iou_val
+                    if iou_val >= self._iou_thresh:
+                        # IoU cost between 0.0 (perfect overlap) and 0.80
+                        cost[i, j] = (1.0 - iou_val) * 0.8
+                    elif dist <= self._max_dist:
+                        # Centroid distance cost between 0.80 and 0.99
+                        normalized_dist = min(dist / max(self._max_dist, 1.0), 1.0)
+                        cost[i, j] = 0.80 + 0.19 * normalized_dist
 
-            # Greedy matching — best IoU first
+            # Greedy matching — lowest cost first
             flat_order = np.argsort(cost.ravel())
             for flat_idx in flat_order:
                 i = flat_idx // n_dets
                 j = flat_idx % n_dets
                 if i >= n_tracks or j >= len(detections):
-                    break
+                    continue
                 if cost[i, j] >= 1.0:
                     break
                 track = track_list[i]
