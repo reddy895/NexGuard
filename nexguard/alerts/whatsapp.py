@@ -103,20 +103,50 @@ class WhatsAppNotifier:
     def _is_bot_alive(self) -> bool:
         """Returns True if the bot HTTP server is responding."""
         try:
-            resp = requests.get(f"{BOT_URL}/health", timeout=2)
+            resp = requests.get(f"{BOT_URL}/health", timeout=1)
             return resp.status_code == 200
         except Exception:
             return False
 
-    def get_status(self) -> str:
-        """Returns the current WhatsApp bot status string."""
+    def get_status(self, refresh_sync: bool = False) -> str:
+        """
+        Returns the current WhatsApp bot status string.
+        Uses background caching to ensure inference loop is never blocked.
+        """
+        now = time.time()
+        if not hasattr(self, "_cached_status"):
+            self._cached_status = "OFFLINE" if not self.enabled else "INITIALIZING"
+            self._last_status_check = 0.0
+            self._checking_status = False
+
+        if refresh_sync:
+            self._query_status()
+            return self._cached_status
+
+        # If cache expired and not already querying, trigger async background poll
+        if (now - self._last_status_check) > 3.0 and not getattr(self, "_checking_status", False):
+            self._checking_status = True
+            threading.Thread(
+                target=self._query_status,
+                daemon=True,
+                name="wa-status-poll"
+            ).start()
+
+        return self._cached_status
+
+    def _query_status(self) -> None:
+        """Queries the bot status endpoint in background thread."""
         try:
-            resp = requests.get(f"{BOT_URL}/status", timeout=2)
+            resp = requests.get(f"{BOT_URL}/status", timeout=1.5)
             if resp.status_code == 200:
-                return resp.json().get("status", "UNKNOWN")
+                self._cached_status = resp.json().get("status", "UNKNOWN")
+            else:
+                self._cached_status = "OFFLINE"
         except Exception:
-            pass
-        return "OFFLINE"
+            self._cached_status = "OFFLINE"
+        finally:
+            self._last_status_check = time.time()
+            self._checking_status = False
 
     @property
     def is_connected(self) -> bool:
