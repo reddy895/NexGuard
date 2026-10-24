@@ -88,13 +88,14 @@ class AlertManager:
         lines = [
             f"{severity_emoji} *NEXGUARD INCIDENT ALERT*",
             "─" * 30,
-            f"*ID*       : {incident.incident_id}",
-            f"*Time*     : {now}",
-            f"*Location* : {cfg.location_name}",
-            f"*Type*     : {incident.event_type.value.replace('_', ' ').title()}",
-            f"*Severity* : {incident.severity.value}",
-            f"*Score*    : {incident.severity_score:.0%}",
-            f"*Confidence*: {incident.confidence:.0%}",
+            f"*ID*         : {incident.incident_id}",
+            f"*Time*       : {now}",
+            f"*Camera/Src* : {cfg.camera_id} ({cfg.source})",
+            f"*Location*   : {cfg.location_name}",
+            f"*Type*       : {incident.event_type.value.replace('_', ' ').title()}",
+            f"*Severity*   : {incident.severity.value}",
+            f"*Score*      : {incident.severity_score:.0%}",
+            f"*Confidence* : {incident.confidence:.0%}",
             "",
         ]
 
@@ -108,6 +109,12 @@ class AlertManager:
                     f"  Person #{p.track_id}: *{p.involvement_level}* risk "
                     f"({p.movement}, {p.distance_px:.0f}px away)"
                 )
+
+        if incident.evidence_frames:
+            lines.append(f"📸 Evidence Image: {incident.evidence_frames[-1]}")
+
+        if incident.evidence_clip:
+            lines.append(f"📹 Evidence Clip : {incident.evidence_clip}")
 
         if incident.severity_reasons:
             lines.append("")

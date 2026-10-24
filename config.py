@@ -82,6 +82,9 @@ class NexGuardConfig:
     source: str = field(
         default_factory=lambda: os.getenv("NEXGUARD_SOURCE", "0")
     )
+    camera_id: str = field(
+        default_factory=lambda: os.getenv("NEXGUARD_CAMERA_ID", "CAM-01")
+    )
     max_fps: int = field(
         default_factory=lambda: int(os.getenv("NEXGUARD_MAX_FPS", str(MAX_FPS)))
     )
