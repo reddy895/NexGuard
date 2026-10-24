@@ -96,6 +96,15 @@ class VideoSource:
                     f"Cannot open video file: {self.source_str}. "
                     "The file may be corrupt or in an unsupported format."
                 )
+            # Probe frame decode
+            if not self.cap.grab():
+                self.cap.release()
+                self.cap = None
+                raise RuntimeError(
+                    f"Cannot decode video frames from: {self.source_str}. "
+                    "File may be empty, corrupt, or in an unsupported format."
+                )
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         elif self.source_type in ("rtsp", "http"):
             self.cap = cv2.VideoCapture(self.source_str)
             if not self.cap.isOpened():
@@ -117,6 +126,29 @@ class VideoSource:
             f"Opened {self.source_type} source: {self.source_str} "
             f"[{self.frame_width}x{self.frame_height} @ {self.fps:.1f} FPS]"
         )
+
+    @property
+    def is_live(self) -> bool:
+        """Returns True if the source is a live webcam or network stream."""
+        return self.source_type in ("webcam", "rtsp", "http")
+
+    def read_latest(self) -> Tuple[bool, Optional[np.ndarray]]:
+        """
+        For live sources, flushes buffered frames to read the freshest frame.
+        For file sources, performs standard sequential read.
+        """
+        if self.cap is None or not self.cap.isOpened():
+            return False, None
+
+        if self.is_live:
+            # Drop older buffered frames to reduce latency
+            for _ in range(3):
+                if not self.cap.grab():
+                    break
+            ok, frame = self.cap.retrieve()
+            return ok, frame if ok else None
+
+        return self.read()
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
         """
