@@ -104,3 +104,54 @@ def test_empty_tensor_does_not_crash_pipeline():
         assert tracks == []
         event = acc_detector.update(tracks)
         assert event is None
+
+
+def test_validate_accident_dataset_missing():
+    from nexguard.detection.validator import validate_accident_dataset
+
+    valid, msg, meta = validate_accident_dataset("nonexistent_datasets/data.yaml")
+    assert valid is False
+    assert "NEXGUARD ERROR: ACCIDENT DATASET REQUIRED" in msg
+    assert meta["status"] == "MISSING"
+
+
+def test_validate_accident_dataset_valid(tmp_path):
+    import yaml
+    from nexguard.detection.validator import validate_accident_dataset
+
+    yaml_file = tmp_path / "data.yaml"
+    data = {
+        "train": str(tmp_path / "train"),
+        "val": str(tmp_path / "val"),
+        "nc": 2,
+        "names": {0: "moderate_accident", 1: "severe_accident"}
+    }
+    with open(yaml_file, "w") as f:
+        yaml.dump(data, f)
+
+    valid, msg, meta = validate_accident_dataset(str(yaml_file))
+    assert valid is True
+    assert meta["status"] == "VALID"
+    assert meta["num_classes"] == 2
+    assert "moderate_accident" in meta["classes"].values()
+
+
+def test_strict_accident_model_flags_generic_detector():
+    from config import cfg
+
+    with patch("pathlib.Path.exists", return_value=True), patch("ultralytics.YOLO") as mock_yolo_cls:
+        mock_instance = MagicMock()
+        # Generic COCO detector without accident classes
+        mock_instance.names = {0: "person", 1: "car", 2: "truck"}
+        mock_instance.return_value = [MagicMock()]
+        mock_yolo_cls.return_value = mock_instance
+
+        # Temporarily enable strict accident model check
+        original_strict = cfg.strict_accident_model
+        try:
+            cfg.strict_accident_model = True
+            detector = ObjectDetector(model_path="yolov8n.pt")
+            assert detector.model_ready is False
+            assert "NEXGUARD ERROR: ACCIDENT DATASET REQUIRED" in detector.diagnostic_info.error_message
+        finally:
+            cfg.strict_accident_model = original_strict
