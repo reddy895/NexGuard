@@ -216,7 +216,18 @@ class ObjectDetector:
             cls_id = int(box.cls[0])
             cls_name = self._class_names.get(cls_id, f"class_{cls_id}")
 
-            if cls_name not in target_classes:
+            is_acc = (
+                cls_name in cfg.accident_classes
+                or any(acc.lower() in cls_name.lower() for acc in cfg.accident_classes)
+            )
+
+            # Accept if in target classes, or matches accident class, or model is dedicated accident detector
+            if (
+                cls_name not in target_classes
+                and not is_acc
+                and self.diagnostic_info
+                and self.diagnostic_info.model_type != ModelType.ACCIDENT_DETECTOR
+            ):
                 continue
 
             xyxy = box.xyxy[0].cpu().numpy()
@@ -233,6 +244,7 @@ class ObjectDetector:
                     class_name=cls_name,
                     confidence=conf,
                     class_id=cls_id,
+                    is_accident=is_acc,
                 )
             )
 
