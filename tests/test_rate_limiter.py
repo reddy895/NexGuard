@@ -136,5 +136,65 @@ class TestRateLimiter(unittest.TestCase):
         StreamInferenceLock.release_stream(stream_id)
 
 
+    def test_slow_inference_naturally_reduces_fps(self):
+        """When inference takes > 1/15s (e.g. 100ms), throughput naturally drops without backpressure."""
+        clock = MockClock()
+        limiter = MonotonicRateLimiter(
+            max_fps=15,
+            window_seconds=1.0,
+            clock_fn=clock.now,
+            sleep_fn=clock.sleep,
+        )
+
+        inferences_in_one_second = 0
+        start_time = clock.now()
+
+        # Simulate slow 100ms inference per frame
+        while (clock.now() - start_time) < 1.0:
+            allowed = limiter.acquire(blocking=True)
+            if not allowed:
+                break
+            inferences_in_one_second += 1
+            # Inference execution takes 100ms (0.10s)
+            clock.advance(0.100)
+            limiter.record_inference_completion(0.100)
+
+        # In 1 second with 100ms inference, at most 10 inferences can execute
+        self.assertLessEqual(inferences_in_one_second, 10)
+        self.assertGreaterEqual(inferences_in_one_second, 9)
+        self.assertEqual(limiter.slow_inference_count, inferences_in_one_second)
+        self.assertAlmostEqual(limiter.mean_inference_time_ms, 100.0, delta=1.0)
+
+    def test_metrics_summary(self):
+        clock = MockClock()
+        limiter = MonotonicRateLimiter(
+            max_fps=15,
+            window_seconds=1.0,
+            clock_fn=clock.now,
+            sleep_fn=clock.sleep,
+        )
+        limiter.record_frame_seen()
+        limiter.acquire(blocking=True)
+        clock.advance(0.040)
+        limiter.record_inference_completion(0.040)
+
+        summary = limiter.metrics_summary()
+        self.assertEqual(summary["total_frames_seen"], 1)
+        self.assertEqual(summary["total_inferences"], 1)
+        self.assertEqual(summary["total_skipped"], 0)
+        self.assertEqual(summary["max_fps_limit"], 15)
+        self.assertAlmostEqual(summary["mean_inference_time_ms"], 40.0, delta=1.0)
+
+    def test_reset_clears_state(self):
+        clock = MockClock()
+        limiter = MonotonicRateLimiter(max_fps=15, clock_fn=clock.now, sleep_fn=clock.sleep)
+        limiter.record_frame_seen()
+        limiter.acquire(blocking=True)
+        limiter.reset()
+        self.assertEqual(limiter.total_frames_seen, 0)
+        self.assertEqual(limiter.total_inferences, 0)
+        self.assertEqual(limiter.current_fps, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
