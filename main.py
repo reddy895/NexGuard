@@ -142,6 +142,11 @@ def parse_args() -> argparse.Namespace:
         default=cfg.strict_accident_model,
         help="Enforce that weights must be trained for accident detection (default: false)",
     )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Run in diagnostic mode on supplied source (image or video) and save annotated detections",
+    )
 
     return parser.parse_args()
 
@@ -241,6 +246,38 @@ def run(args: argparse.Namespace) -> int:
         )
         return 1
 
+    print_startup_info(args, detector)
+
+    # ── Diagnostic Mode ───────────────────────────────────────────────────────
+    if args.diagnose:
+        from nexguard.detection.diagnostic import DiagnosticRunner
+        log.info(f"Running standalone diagnostic inference on source: {args.source}")
+        runner = DiagnosticRunner(detector=detector)
+        src_lower = str(args.source).lower()
+
+        if src_lower.endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp")):
+            result = runner.run_image(args.source)
+        else:
+            result = runner.run_video(args.source, max_frames=90)
+
+        print("\n" + "═" * 64)
+        print("  NEXGUARD DIAGNOSTIC RUN SUMMARY")
+        print("═" * 64)
+        print(f"  • Source File       : {result.get('source')}")
+        print(f"  • Annotated Output  : {result.get('output_path')}")
+        print(f"  • Frames Processed  : {result.get('frame_count')}")
+        total_dets = result.get('total_detections') if 'total_detections' in result else result.get('detection_count', 0)
+        print(f"  • Total Detections  : {total_dets}")
+        if 'class_counts' in result:
+            print("  • Detections by Class:")
+            for cls_name, count in result['class_counts'].items():
+                print(f"      - {cls_name}: {count}")
+        if 'avg_inference_ms' in result:
+            print(f"  • Mean Inference    : {result['avg_inference_ms']:.1f}ms")
+            print(f"  • Effective FPS     : {result['effective_fps']:.1f} FPS (capped at 15)")
+        print("═" * 64 + "\n")
+        return 0
+
     tracker = ObjectTracker()
     accident_detector = AccidentDetector(threshold=args.accident_threshold)
     severity_classifier = SeverityClassifier()
@@ -256,8 +293,6 @@ def run(args: argparse.Namespace) -> int:
         cfg.whatsapp_recipients = [args.whatsapp_target]
 
     visualizer = Visualizer() if not args.no_display else None
-
-    print_startup_info(args, detector)
 
     # ── Open video source ─────────────────────────────────────────────────────
     try:
