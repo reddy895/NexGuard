@@ -45,6 +45,57 @@ class EventType(str, Enum):
     UNKNOWN = "unknown"
 
 
+class ModelType(str, Enum):
+    """Classification of the loaded YOLO model."""
+    GENERIC_DETECTOR = "generic_detector"
+    ACCIDENT_DETECTOR = "accident_detector"
+    HYBRID_DETECTOR = "hybrid_detector"
+    UNKNOWN = "unknown"
+
+
+class DetectionMode(str, Enum):
+    """Accident detection operational mode."""
+    HEURISTIC = "heuristic"
+    TRAINED_MODEL = "trained_model"
+    DIAGNOSTIC = "diagnostic"
+
+
+@dataclass
+class ModelDiagnosticInfo:
+    """Detailed startup diagnostic metadata for loaded model and dataset."""
+    model_path: str
+    device: str
+    model_type: ModelType
+    class_count: int
+    classes: Dict[int, str]
+    accident_classes_found: List[str]
+    inference_size: int
+    confidence_threshold: float
+    max_fps: int
+    dataset_status: str
+    dataset_path: Optional[str] = None
+    ready: bool = True
+    error_message: Optional[str] = None
+
+    def summary_lines(self) -> List[str]:
+        lines = [
+            f"Weights Path      : {self.model_path}",
+            f"Device            : {self.device.upper()}",
+            f"Model Type        : {self.model_type.value.upper()}",
+            f"Total Classes     : {self.class_count}",
+            f"Accident Classes  : {', '.join(self.accident_classes_found) if self.accident_classes_found else 'None (Generic Detector)'}",
+            f"Inference Size    : {self.inference_size}x{self.inference_size}",
+            f"Confidence Thresh : {self.confidence_threshold:.0%}",
+            f"Max FPS Limit     : {self.max_fps}",
+            f"Dataset Status    : {self.dataset_status}",
+        ]
+        if self.dataset_path:
+            lines.append(f"Dataset Path      : {self.dataset_path}")
+        if not self.ready and self.error_message:
+            lines.append(f"Model Error       : {self.error_message}")
+        return lines
+
+
 # ---------------------------------------------------------------------------
 # Detection output
 # ---------------------------------------------------------------------------
@@ -64,6 +115,7 @@ class Detection:
     class_name: str
     confidence: float
     class_id: int = 0
+    is_accident: bool = False
 
     @property
     def center(self) -> Tuple[float, float]:
@@ -99,6 +151,7 @@ class Track:
         age:            Total number of frames this track has been alive.
         is_vehicle:     True if this track represents a vehicle.
         is_person:      True if this track represents a person.
+        is_accident:    True if this track represents an accident/collision detection.
     """
     track_id: int
     bbox: Tuple[float, float, float, float]
@@ -115,6 +168,7 @@ class Track:
     age: int = 0
     is_vehicle: bool = False
     is_person: bool = False
+    is_accident: bool = False
 
     @property
     def acceleration(self) -> float:
