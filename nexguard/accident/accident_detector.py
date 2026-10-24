@@ -290,13 +290,16 @@ class AccidentDetector:
                 f"bbox_overlap={iou_val:.2f} between tracks #{t1.track_id} and #{t2.track_id}"
             )
 
-        # 2. Centroid proximity
+        # 2. Centroid proximity normalized by object scale
         dist = _dist(t1.bbox, t2.bbox)
-        if dist < cfg.proximity_threshold_px:
-            contribution = max(0.0, 1.0 - dist / cfg.proximity_threshold_px)
+        diag1 = math.hypot(t1.bbox[2] - t1.bbox[0], t1.bbox[3] - t1.bbox[1])
+        diag2 = math.hypot(t2.bbox[2] - t2.bbox[0], t2.bbox[3] - t2.bbox[1])
+        scale_proximity_thresh = max(cfg.proximity_threshold_px, (diag1 + diag2) * 0.45)
+        if dist < scale_proximity_thresh:
+            contribution = max(0.0, 1.0 - dist / scale_proximity_thresh)
             score += 0.20 * contribution
             signals.append(
-                f"proximity={dist:.0f}px (threshold={cfg.proximity_threshold_px:.0f}px)"
+                f"proximity={dist:.0f}px (adaptive_thresh={scale_proximity_thresh:.0f}px)"
             )
 
         # 3. Approach (closing) velocity
@@ -327,14 +330,15 @@ class AccidentDetector:
         if persons:
             cx_pair = (t1.cx + t2.cx) / 2
             cy_pair = (t1.cy + t2.cy) / 2
+            ped_thresh = scale_proximity_thresh * 1.5
             for p in persons:
                 pd = math.hypot(p.cx - cx_pair, p.cy - cy_pair)
-                if pd < cfg.proximity_threshold_px * 1.5:
+                if pd < ped_thresh:
                     score += 0.10
                     etype = EventType.VEHICLE_PEDESTRIAN
                     signals.append(
                         f"person #{p.track_id} near collision zone "
-                        f"(distance={pd:.0f}px)"
+                        f"(distance={pd:.0f}px, thresh={ped_thresh:.0f}px)"
                     )
                     break
 
