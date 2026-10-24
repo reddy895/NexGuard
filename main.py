@@ -339,7 +339,7 @@ def run(args: argparse.Namespace) -> int:
                 fps_start = time.time()
 
             # ── Detection ──────────────────────────────────────────────────────
-            detections = detector.detect(frame)
+            detections = detector.detect(frame, frame_number=frame_index)
 
             # ── Tracking ──────────────────────────────────────────────────────
             tracks = tracker.update(detections)

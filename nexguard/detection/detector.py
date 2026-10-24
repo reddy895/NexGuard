@@ -56,6 +56,7 @@ class ObjectDetector:
         self.model_ready = False
         self._class_names: dict = {}
         self.diagnostic_info: Optional[ModelDiagnosticInfo] = None
+        self.last_inference_time_ms: float = 0.0
 
         self._load_model()
 
@@ -216,12 +217,17 @@ class ObjectDetector:
 
         return frame
 
-    def detect(self, frame: np.ndarray) -> List[Detection]:
+    def detect(
+        self,
+        frame: np.ndarray,
+        frame_number: Optional[int] = None,
+    ) -> List[Detection]:
         """
         Runs object detection on a single frame.
 
         Args:
             frame: BGR numpy array from OpenCV.
+            frame_number: Optional frame index for detailed logging.
 
         Returns:
             List of Detection objects filtered to NexGuard target classes.
@@ -234,6 +240,8 @@ class ObjectDetector:
             log.warning("Invalid or corrupt frame received for inference — skipping.")
             return []
 
+        import time
+        t0 = time.monotonic()
         try:
             results = self.model(
                 processed_frame,
@@ -246,6 +254,8 @@ class ObjectDetector:
         except Exception as e:
             log.warning(f"Detection error on frame: {e}")
             return []
+        finally:
+            self.last_inference_time_ms = (time.monotonic() - t0) * 1000.0
 
         detections: List[Detection] = []
         target_classes = set(cfg.all_target_classes)
@@ -270,6 +280,13 @@ class ObjectDetector:
 
             xyxy = box.xyxy[0].cpu().numpy()
             conf = float(box.conf[0].cpu().numpy())
+
+            f_str = f"Frame {frame_number}" if frame_number is not None else "Frame"
+            log.debug(
+                f"[DETECTION] {f_str} | Class={cls_name} (ID={cls_id}) | "
+                f"Conf={conf:.2f} | Box=[{float(xyxy[0]):.1f}, {float(xyxy[1]):.1f}, {float(xyxy[2]):.1f}, {float(xyxy[3]):.1f}] | "
+                f"Time={self.last_inference_time_ms:.1f}ms"
+            )
 
             detections.append(
                 Detection(
