@@ -133,8 +133,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-fps",
         type=int,
-        default=15,
-        help="Limit pipeline speed to maximum FPS (default: %(default)s)",
+        default=cfg.max_fps,
+        help="Limit pipeline speed to maximum FPS (default: %(default)s, hard limit: 15)",
+    )
+    parser.add_argument(
+        "--strict-accident-model",
+        action="store_true",
+        default=cfg.strict_accident_model,
+        help="Enforce that weights must be trained for accident detection (default: false)",
     )
 
     return parser.parse_args()
@@ -142,22 +148,39 @@ def parse_args() -> argparse.Namespace:
 
 # ─────────────────────────────────────────────────────────────────────────────
 def print_startup_info(args: argparse.Namespace, detector: ObjectDetector) -> None:
+    diag = detector.get_diagnostic_info()
     print(BANNER)
-    print("─" * 62)
-    print(f"  [INFO] Model       : {args.model}")
-    print(f"  [INFO] Device      : {args.device.upper()}")
-    print(f"  [INFO] Source      : {args.source}")
-    print(f"  [INFO] Confidence  : {args.conf:.0%}")
-    print(f"  [INFO] Acc.Thresh  : {args.accident_threshold:.0%}")
-    print(f"  [INFO] Display     : {'OFF' if args.no_display else 'OpenCV window'}")
-    print(f"  [INFO] WhatsApp    : {'DISABLED' if args.no_whatsapp else 'STARTING (scan QR)'}")
-    print(f"  [INFO] WA Target   : +{args.whatsapp_target}")
-    print(f"  [INFO] Evidence    : {'ON' if args.save_evidence else 'OFF'}")
-    print("─" * 62)
+    print("─" * 64)
+    print("  NEXGUARD STARTUP DIAGNOSTICS & SYSTEM CONFIGURATION")
+    print("─" * 64)
+    print(f"  • Model Path       : {diag.model_path}")
+    print(f"  • Device           : {diag.device.upper()}")
+    print(f"  • Model Type       : {diag.model_type.value.upper()}")
+    print(f"  • Total Classes    : {diag.class_count} classes")
+    if diag.accident_classes_found:
+        print(f"  • Accident Classes : {', '.join(diag.accident_classes_found)}")
+    else:
+        print("  • Accident Classes : None (Generic Pretrained Object Detector)")
+    print(f"  • Resolution       : {diag.inference_size}x{diag.inference_size}")
+    print(f"  • Confidence Thresh: {args.conf:.0%}")
+    print(f"  • Accident Thresh  : {args.accident_threshold:.0%}")
+    print(f"  • Configured FPS   : {args.max_fps} FPS (Hard Maximum: 15)")
+    print(f"  • Dataset Status   : {diag.dataset_status}")
+    mode_desc = (
+        "TRAINED ACCIDENT MODEL" if detector.is_accident_model
+        else "HEURISTIC PROTOTYPE (Multi-vehicle kinematics & spatial tracking)"
+    )
+    print(f"  • Detection Mode   : {mode_desc}")
+    print(f"  • Video Source     : {args.source}")
+    print(f"  • Display Window   : {'OFF' if args.no_display else 'OpenCV GUI'}")
+    print(f"  • WhatsApp Alert   : {'DISABLED' if args.no_whatsapp else 'ENABLED (scan QR if first run)'}")
+    print(f"  • Alert Target     : +{args.whatsapp_target}")
+    print(f"  • Save Evidence    : {'ENABLED' if args.save_evidence else 'DISABLED'}")
+    print("─" * 64)
     if not args.no_display:
         print("  Press Q or ESC in the video window to quit.")
     print("  Press Ctrl+C in terminal to quit.")
-    print("─" * 62 + "\n")
+    print("─" * 64 + "\n")
 
 
 def print_frame_stats(
@@ -204,6 +227,8 @@ def run(args: argparse.Namespace) -> int:
     cfg.device = args.device
     cfg.accident_threshold = args.accident_threshold
     cfg.whatsapp_enabled = not args.no_whatsapp
+    cfg.max_fps = min(args.max_fps, 15)
+    cfg.strict_accident_model = args.strict_accident_model
 
     # ── Initialize components ─────────────────────────────────────────────────
     log.info("Initializing NexGuard pipeline...")
