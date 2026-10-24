@@ -40,6 +40,7 @@ from nexguard.input.source import VideoSource
 from nexguard.models.schemas import IncidentStatus
 from nexguard.tracking.tracker import ObjectTracker
 from nexguard.utils.logging import get_logger
+from nexguard.utils.rate_limiter import MonotonicRateLimiter
 from nexguard.visualization.ui import Visualizer
 
 log = get_logger("nexguard.main")
@@ -194,13 +195,15 @@ def print_frame_stats(
     n_persons: int,
     n_vehicles: int,
     n_incidents: int,
+    skipped: int = 0,
 ) -> None:
     """Prints a clean periodic terminal status line."""
-    if frame_index % 30 == 0:  # Every ~1s at 30fps
+    if frame_index % 15 == 0:  # Every ~1s at 15fps
         ts = datetime.now().strftime("%H:%M:%S")
         print(
             f"\r  [{ts}] Frame: {frame_index:6d} | "
             f"FPS: {fps:5.1f} | "
+            f"Skipped: {skipped:4d} | "
             f"Persons: {n_persons} | "
             f"Vehicles: {n_vehicles} | "
             f"Incidents: {n_incidents}",
@@ -309,17 +312,15 @@ def run(args: argparse.Namespace) -> int:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     frame_index = 0
-    fps_start = time.time()
-    fps_frames = 0
     measured_fps = 0.0
+    rate_limiter = MonotonicRateLimiter(max_fps=cfg.max_fps)
     evidence_recording: set = set()  # incident_ids with active clip recording
 
     print("\n[INFO] Pipeline running...\n")
 
     try:
         while _running and source.is_open():
-            loop_start = time.time()
-            ok, frame = source.read()
+            ok, frame = source.read_latest() if source.is_live else source.read()
             if not ok:
                 if source.source_type == "file":
                     log.info("Video file ended.")
@@ -328,15 +329,14 @@ def run(args: argparse.Namespace) -> int:
                 time.sleep(0.05)
                 continue
 
-            frame_index += 1
-            fps_frames += 1
+            # Enforce hard rate limit of max 15 processed inference FPS
+            allow_inference, reason = rate_limiter.should_process_frame(is_live=source.is_live)
+            if not allow_inference:
+                # Frame skipped to prevent queue buildup and latency accumulation
+                continue
 
-            # FPS measurement (rolling window)
-            elapsed = time.time() - fps_start
-            if elapsed >= 1.0:
-                measured_fps = fps_frames / elapsed
-                fps_frames = 0
-                fps_start = time.time()
+            frame_index += 1
+            measured_fps = rate_limiter.current_fps
 
             # ── Detection ──────────────────────────────────────────────────────
             detections = detector.detect(frame, frame_number=frame_index)
@@ -448,6 +448,7 @@ def run(args: argparse.Namespace) -> int:
                 len(persons),
                 len(vehicles),
                 len(incident_manager.active_incidents),
+                skipped=rate_limiter.total_skipped,
             )
 
             # ── OpenCV display ────────────────────────────────────────────────
@@ -464,13 +465,6 @@ def run(args: argparse.Namespace) -> int:
                 if key in (ord("q"), ord("Q"), 27):  # q or ESC
                     log.info("Quit key pressed — stopping.")
                     break
-
-            # ── Frame Pacing (Max FPS) ────────────────────────────────────────
-            if args.max_fps > 0:
-                elapsed_loop = time.time() - loop_start
-                target_time = 1.0 / args.max_fps
-                if elapsed_loop < target_time:
-                    time.sleep(target_time - elapsed_loop)
 
     except KeyboardInterrupt:
         pass
@@ -490,14 +484,18 @@ def run(args: argparse.Namespace) -> int:
         alert_manager.shutdown()
 
         # Session summary
-        print("\n" + "═" * 62)
+        print("\n" + "═" * 64)
         print("  NEXGUARD SESSION SUMMARY")
-        print("═" * 62)
-        print(f"  Frames processed : {frame_index}")
-        print(f"  Total incidents  : {incident_manager.total_incidents}")
-        print(f"  Resolved         : {len(incident_manager.incident_history)}")
-        print(f"  Active           : {len(incident_manager.active_incidents)}")
-        print("═" * 62 + "\n")
+        print("═" * 64)
+        print(f"  Frames captured      : {rate_limiter.total_frames_seen}")
+        print(f"  Frames inferred      : {rate_limiter.total_inferences}")
+        print(f"  Frames skipped       : {rate_limiter.total_skipped}")
+        print(f"  Skip ratio           : {rate_limiter.skip_ratio:.1%}")
+        print(f"  Peak rolling FPS     : {min(measured_fps, 15.0):.1f} (Capped at MAX_FPS=15)")
+        print(f"  Total incidents      : {incident_manager.total_incidents}")
+        print(f"  Resolved incidents   : {len(incident_manager.incident_history)}")
+        print(f"  Active incidents     : {len(incident_manager.active_incidents)}")
+        print("═" * 64 + "\n")
 
     return 0
 
