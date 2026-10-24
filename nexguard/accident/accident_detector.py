@@ -118,6 +118,7 @@ class AccidentDetector:
 
         # Sliding window: stores per-frame track snapshots
         self._frame_buffer: Deque[List[Track]] = deque(maxlen=self._window)
+        self._conf_history: Deque[float] = deque(maxlen=self._window)
 
         # Confirmation counter — how many consecutive frames exceeded threshold
         self._consecutive_detections: int = 0
@@ -126,6 +127,13 @@ class AccidentDetector:
         self._last_event_frame: int = -999
 
         self._frame_index: int = 0
+
+    @property
+    def smoothed_confidence(self) -> float:
+        """Moving average confidence over recent sliding window."""
+        if not self._conf_history:
+            return 0.0
+        return sum(self._conf_history) / len(self._conf_history)
 
     def update(self, tracks: List[Track]) -> Optional[AccidentEvent]:
         """
@@ -142,6 +150,7 @@ class AccidentDetector:
 
         # Need at least 2 frames of history to compute motion
         if len(self._frame_buffer) < 2:
+            self._conf_history.append(0.0)
             return None
 
         # Evaluate all tracks in the current frame
@@ -151,8 +160,14 @@ class AccidentDetector:
 
         event = self._evaluate(vehicles, persons, accident_tracks)
 
-        if event and event.confidence >= self._threshold:
+        instant_conf = event.confidence if event else 0.0
+        self._conf_history.append(instant_conf)
+        smoothed_conf = self.smoothed_confidence
+
+        if event and (event.confidence >= self._threshold or smoothed_conf >= self._threshold * 0.85):
             self._consecutive_detections += 1
+            # Smooth event confidence with sliding temporal average
+            event.confidence = min(1.0, event.confidence * 0.70 + smoothed_conf * 0.30)
         else:
             self._consecutive_detections = max(0, self._consecutive_detections - 1)
 
@@ -163,6 +178,7 @@ class AccidentDetector:
                 self._consecutive_detections = 0  # Reset after emission
                 log.info(
                     f"[ACCIDENT CONFIRMED] confidence={event.confidence:.2f} "
+                    f"smoothed={smoothed_conf:.2f} "
                     f"type={event.event_type.value} "
                     f"mode={event.detection_mode.value} "
                     f"tracks={event.track_ids}"
@@ -386,6 +402,7 @@ class AccidentDetector:
     def reset(self) -> None:
         """Resets the detector state (call when starting a new video)."""
         self._frame_buffer.clear()
+        self._conf_history.clear()
         self._consecutive_detections = 0
         self._last_event_frame = -999
         self._frame_index = 0
