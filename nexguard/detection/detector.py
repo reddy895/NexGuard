@@ -147,6 +147,18 @@ class ObjectDetector:
                 ready=True,
             )
 
+            if cfg.strict_accident_model and model_type == ModelType.GENERIC_DETECTOR:
+                err_msg = (
+                    "NEXGUARD ERROR: ACCIDENT DATASET REQUIRED — "
+                    f"Model '{self.model_path}' is a generic object detector with {len(self._class_names)} classes "
+                    "and contains no accident-specific classes. Fine-tune or supply an accident model."
+                )
+                log.error(err_msg)
+                self.model_ready = False
+                self.diagnostic_info.ready = False
+                self.diagnostic_info.error_message = err_msg
+                return
+
             log.info(
                 f"Detector ready — model={self.model_path} ({model_type.value})  "
                 f"device={device}  conf={self.conf:.2f}  iou={self.iou:.2f}  imgsz={self.imgsz}"

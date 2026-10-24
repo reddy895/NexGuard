@@ -39,10 +39,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    data_path = Path(args.data)
-    if not data_path.exists():
-        print(f"\n[ERROR] Dataset not found: {data_path}")
-        print("Please prepare your dataset. See datasets/README.md for instructions.")
+    from nexguard.detection.validator import validate_accident_dataset
+
+    is_valid, err_msg, meta = validate_accident_dataset(args.data)
+    if not is_valid:
+        print(f"\n{err_msg}")
         return 1
 
     try:
