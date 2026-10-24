@@ -42,6 +42,10 @@ class AlertManager:
         self._notifier = notifier or WhatsAppNotifier(
             enabled=cfg.whatsapp_enabled,
         )
+        log.info(
+            "[AlertManager] Initialized in DECISION-SUPPORT PROTOTYPE mode. "
+            "Alerts require human verification and must not replace certified safety systems."
+        )
 
     def dispatch(self, incident: Incident) -> bool:
         """
@@ -146,7 +150,8 @@ class AlertManager:
 
         lines.extend([
             "",
-            "⚠️ _PROTOTYPE SYSTEM — Verify before emergency response._",
+            "⚠️ *SAFETY NOTICE*: Decision-support prototype only.",
+            "Not certified for emergency dispatch. Requires human verification.",
             "_NexGuard AI Safety Monitoring_",
         ])
 
@@ -157,8 +162,10 @@ class AlertManager:
             f"[ALERT LOG] {incident.incident_id} | "
             f"severity={incident.severity.value} | "
             f"score={incident.severity_score:.3f} | "
+            f"status={incident.alert_status} | "
             f"vehicles={len(incident.involved_vehicles)} | "
-            f"people={len(incident.involved_people)}"
+            f"people={len(incident.involved_people)} | "
+            f"[DECISION-SUPPORT PROTOTYPE — NOT A CERTIFIED SYSTEM]"
         )
 
     def shutdown(self) -> None:
