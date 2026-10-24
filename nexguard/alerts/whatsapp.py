@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
@@ -43,6 +43,9 @@ class WhatsAppNotifier:
         self._bot_process: Optional[subprocess.Popen] = None
         self._started = False
         self._status = "NOT_STARTED"
+        self._delivery_log: List[Dict[str, Any]] = []
+        self.total_sent: int = 0
+        self.total_failed: int = 0
 
         if not self.enabled:
             log.info("[WhatsApp] Disabled — skipping bot startup")
@@ -127,33 +130,51 @@ class WhatsAppNotifier:
     #  Message dispatch                                                    #
     # ------------------------------------------------------------------ #
 
-    def send(self, phone: str, message: str) -> None:
+    def send(
+        self,
+        phone: str,
+        message: str,
+        on_complete: Optional[Callable[[bool, str], None]] = None,
+    ) -> None:
         """
         Sends a WhatsApp message asynchronously (non-blocking).
 
         Args:
-            phone:   Recipient number with country code, digits only.
-                     Example: '9591152862' (India, no +91 prefix — adds automatically)
-            message: Message text.
+            phone:       Recipient number with country code, digits only.
+                         Example: '9591152862' (India, no +91 prefix — adds automatically)
+            message:     Message text.
+            on_complete: Optional callback invoked with (success, status_str).
         """
         if not self.enabled:
             log.info(f"[WhatsApp DISABLED] Would send to {phone}: {message[:60]}...")
+            if on_complete:
+                on_complete(False, "DISABLED")
             return
 
         thread = threading.Thread(
             target=self._send_sync,
-            args=(phone, message),
+            args=(phone, message, on_complete),
             daemon=True,
             name=f"wa-{phone[-4:]}",
         )
         thread.start()
 
-    def _send_sync(self, phone: str, message: str) -> bool:
+    def _send_sync(
+        self,
+        phone: str,
+        message: str,
+        on_complete: Optional[Callable[[bool, str], None]] = None,
+    ) -> bool:
         """Performs the HTTP POST to the local bot server."""
         # Normalize: strip + and spaces, ensure country code
         phone = phone.strip().lstrip("+").replace(" ", "")
         if not phone.startswith("91") and len(phone) == 10:
             phone = "91" + phone  # Default to India (+91) for 10-digit numbers
+
+        masked_phone = f"{phone[:4]}****{phone[-4:]}" if len(phone) >= 8 else phone
+        start_t = time.time()
+        success = False
+        status_msg = "UNKNOWN"
 
         try:
             resp = requests.post(
@@ -161,21 +182,50 @@ class WhatsAppNotifier:
                 json={"phone": phone, "message": message},
                 timeout=REQUEST_TIMEOUT,
             )
+            elapsed = time.time() - start_t
             if resp.status_code == 200 and resp.json().get("ok"):
-                log.info(f"[WhatsApp] Message sent to {phone[-6:]}xxxx")
-                return True
+                log.info(f"[WhatsApp] Message sent to {masked_phone} ({elapsed:.2f}s)")
+                self.total_sent += 1
+                success = True
+                status_msg = "DELIVERED"
             else:
-                log.warning(f"[WhatsApp] Send failed: {resp.text[:200]}")
-                return False
+                err_text = resp.text[:200]
+                log.warning(f"[WhatsApp] Send failed to {masked_phone}: {err_text}")
+                self.total_failed += 1
+                status_msg = f"FAILED: {err_text}"
         except requests.Timeout:
-            log.warning("[WhatsApp] Send request timed out")
-            return False
+            log.warning(f"[WhatsApp] Send request timed out for {masked_phone}")
+            self.total_failed += 1
+            status_msg = "TIMEOUT"
         except requests.ConnectionError:
-            log.warning("[WhatsApp] Bot not reachable — is it running?")
-            return False
+            log.warning(f"[WhatsApp] Bot not reachable for {masked_phone}")
+            self.total_failed += 1
+            status_msg = "UNREACHABLE"
         except Exception as e:
-            log.error(f"[WhatsApp] Unexpected error: {e}")
-            return False
+            log.error(f"[WhatsApp] Unexpected error for {masked_phone}: {e}")
+            self.total_failed += 1
+            status_msg = f"ERROR: {e}"
+
+        record = {
+            "timestamp": time.time(),
+            "phone": masked_phone,
+            "status": status_msg,
+            "success": success,
+            "elapsed_s": round(time.time() - start_t, 3),
+        }
+        self._delivery_log.append(record)
+
+        if on_complete:
+            try:
+                on_complete(success, status_msg)
+            except Exception as cb_err:
+                log.error(f"[WhatsApp] on_complete callback error: {cb_err}")
+
+        return success
+
+    def get_delivery_history(self) -> List[Dict[str, Any]]:
+        """Returns a copy of all delivery attempt records."""
+        return list(self._delivery_log)
 
     def send_test(self, phone: str) -> bool:
         """Synchronous test send. Returns True on success."""
