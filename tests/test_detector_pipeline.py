@@ -58,3 +58,49 @@ def test_detector_class_names_mapping():
         diag = detector.get_diagnostic_info()
         assert diag.class_count == 4
         assert "accident" in diag.accident_classes_found
+
+
+def test_zero_detections_in_frame():
+    import numpy as np
+    from nexguard.tracking.tracker import ObjectTracker
+
+    with patch("pathlib.Path.exists", return_value=True), patch("ultralytics.YOLO") as mock_yolo_cls:
+        mock_instance = MagicMock()
+        mock_instance.names = {0: "person", 1: "car"}
+        # Mock empty results with 0 boxes
+        mock_box = MagicMock()
+        mock_box.__len__.return_value = 0
+        mock_box.xyxy = []
+        mock_box.conf = []
+        mock_box.cls = []
+        mock_res = MagicMock()
+        mock_res.boxes = mock_box
+        mock_instance.return_value = [mock_res]
+        mock_yolo_cls.return_value = mock_instance
+
+        detector = ObjectDetector(model_path="dummy.pt")
+        blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        dets = detector.detect(blank_frame)
+        assert isinstance(dets, list)
+        assert len(dets) == 0
+
+        # Propagate empty detections to tracker
+        tracker = ObjectTracker()
+        active_tracks = tracker.update(dets)
+        assert len(active_tracks) == 0
+
+
+def test_empty_tensor_does_not_crash_pipeline():
+    import numpy as np
+    from nexguard.accident.accident_detector import AccidentDetector
+    from nexguard.tracking.tracker import ObjectTracker
+
+    tracker = ObjectTracker()
+    acc_detector = AccidentDetector()
+
+    # Pass 5 consecutive frames with zero detections
+    for _ in range(5):
+        tracks = tracker.update([])
+        assert tracks == []
+        event = acc_detector.update(tracks)
+        assert event is None
