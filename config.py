@@ -35,6 +35,9 @@ for _d in [EVIDENCE_DIR, LOGS_DIR, TEST_CLIPS_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
 
 
+# Central hard maximum FPS constant
+MAX_FPS: int = 15
+
 # ---------------------------------------------------------------------------
 # Configuration dataclass
 # ---------------------------------------------------------------------------
@@ -56,7 +59,7 @@ class NexGuardConfig:
         default_factory=lambda: os.getenv("NEXGUARD_DEVICE", "cpu")
     )
     confidence_threshold: float = field(
-        default_factory=lambda: float(os.getenv("NEXGUARD_CONFIDENCE", "0.40"))
+        default_factory=lambda: float(os.getenv("NEXGUARD_CONFIDENCE", "0.25"))
     )
     iou_threshold: float = field(
         default_factory=lambda: float(os.getenv("NEXGUARD_IOU_THRESHOLD", "0.45"))
@@ -64,20 +67,39 @@ class NexGuardConfig:
     inference_size: int = field(
         default_factory=lambda: int(os.getenv("NEXGUARD_INFERENCE_SIZE", "640"))
     )
+    strict_accident_model: bool = field(
+        default_factory=lambda: os.getenv("NEXGUARD_STRICT_ACCIDENT_MODEL", "false").lower()
+        in ("true", "1", "yes")
+    )
+    accident_dataset_path: str = field(
+        default_factory=lambda: os.getenv(
+            "NEXGUARD_ACCIDENT_DATASET",
+            str(DATASETS_DIR / "accident" / "data.yaml")
+        )
+    )
 
     # --- Video Input ---
     source: str = field(
         default_factory=lambda: os.getenv("NEXGUARD_SOURCE", "0")
     )
     max_fps: int = field(
-        default_factory=lambda: int(os.getenv("NEXGUARD_MAX_FPS", "30"))
+        default_factory=lambda: int(os.getenv("NEXGUARD_MAX_FPS", str(MAX_FPS)))
     )
 
-    # --- Target Classes (COCO names) ---
+    # --- Target Classes ---
     vehicle_classes: Tuple[str, ...] = (
         "car", "motorcycle", "bicycle", "bus", "truck"
     )
     person_classes: Tuple[str, ...] = ("person",)
+    accident_classes: Tuple[str, ...] = (
+        "accident",
+        "crash",
+        "collision",
+        "severe_accident",
+        "moderate_accident",
+        "near_miss",
+        "overturned_vehicle",
+    )
 
     # --- Tracking ---
     max_lost_frames: int = field(
@@ -229,6 +251,10 @@ class NexGuardConfig:
             raise ValueError(
                 f"NEXGUARD_ACCIDENT_THRESHOLD must be 0.0–1.0, got: {self.accident_threshold}"
             )
+        if self.max_fps <= 0 or self.max_fps > MAX_FPS:
+            raise ValueError(
+                f"NEXGUARD_MAX_FPS must be between 1 and {MAX_FPS}, got: {self.max_fps}"
+            )
         if self.whatsapp_enabled and not self.whatsapp_recipients:
             raise ValueError(
                 "NEXGUARD_WHATSAPP_ENABLED=true but NEXGUARD_WHATSAPP_RECIPIENTS is empty. "
@@ -238,7 +264,7 @@ class NexGuardConfig:
     @property
     def all_target_classes(self) -> Tuple[str, ...]:
         """Combined set of all object classes NexGuard is interested in."""
-        return self.vehicle_classes + self.person_classes
+        return self.vehicle_classes + self.person_classes + self.accident_classes
 
 
 # ---------------------------------------------------------------------------
