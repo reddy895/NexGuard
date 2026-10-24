@@ -100,9 +100,19 @@ class _IoUTracker:
         Returns:
             List of currently active Track objects.
         """
-        # -- Mark all tracks as potentially lost this frame
+        # -- Mark all tracks as potentially lost this frame and extrapolate position
         for t in self._tracks.values():
             t.lost_frames += 1
+            t.age += 1
+            if t.lost_frames > 1 and t.speed > 1.0:
+                vx, vy = t.velocity
+                damping = 0.8 ** min(t.lost_frames, 5)
+                dx = vx * damping
+                dy = vy * damping
+                t.cx += dx
+                t.cy += dy
+                x1, y1, x2, y2 = t.bbox
+                t.bbox = (x1 + dx, y1 + dy, x2 + dx, y2 + dy)
 
         matched_track_ids = set()
         matched_det_indices = set()
@@ -182,6 +192,7 @@ class _IoUTracker:
             speed_history=[0.0],
             lost_frames=0,
             age=1,
+            hits=1,
             is_vehicle=det.class_name in cfg.vehicle_classes,
             is_person=det.class_name in cfg.person_classes,
             is_accident=det.is_accident or (det.class_name in cfg.accident_classes),
@@ -211,7 +222,7 @@ class _IoUTracker:
         track.cx = new_cx
         track.cy = new_cy
         track.lost_frames = 0
-        track.age += 1
+        track.hits += 1
 
         track.speed_history.append(speed)
         if len(track.speed_history) > self._history_len:

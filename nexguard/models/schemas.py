@@ -170,6 +170,19 @@ class Track:
     is_person: bool = False
     is_accident: bool = False
 
+    hits: int = 1
+
+    @property
+    def stability_score(self) -> float:
+        """Ratio of successful detection matches to total lifespan."""
+        total = max(self.age, 1)
+        return min(self.hits / total, 1.0)
+
+    @property
+    def is_stable(self) -> bool:
+        """A track is stable if it has at least 3 detections and >= 50% hit rate."""
+        return self.hits >= 3 and self.stability_score >= 0.40
+
     @property
     def acceleration(self) -> float:
         """Rate of speed change (pixels/frame²). Negative = deceleration."""
@@ -200,10 +213,17 @@ class Track:
             "track_id": self.track_id,
             "class_name": self.class_name,
             "confidence": round(self.confidence, 3),
-            "bbox": self.bbox,
+            "bbox": [round(v, 1) for v in self.bbox],
             "center": (round(self.cx, 1), round(self.cy, 1)),
             "speed": round(self.speed, 2),
             "heading": round(self.heading, 1),
+            "lost_frames": self.lost_frames,
+            "age": self.age,
+            "hits": self.hits,
+            "stability_score": round(self.stability_score, 2),
+            "is_stable": self.is_stable,
+            "is_vehicle": self.is_vehicle,
+            "is_accident": self.is_accident,
         }
 
 
