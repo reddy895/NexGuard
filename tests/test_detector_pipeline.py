@@ -155,3 +155,85 @@ def test_strict_accident_model_flags_generic_detector():
             assert "NEXGUARD ERROR: ACCIDENT DATASET REQUIRED" in detector.diagnostic_info.error_message
         finally:
             cfg.strict_accident_model = original_strict
+
+
+def test_pipeline_propagation_kinematic_collision():
+    from nexguard.accident.accident_detector import AccidentDetector
+    from nexguard.models.schemas import Detection, EventType
+    from nexguard.tracking.tracker import ObjectTracker
+
+    tracker = ObjectTracker(iou_threshold=0.15)
+    acc_detector = AccidentDetector(confirm_frames=3, threshold=0.50)
+
+    # Frame 1: Cars far apart, moving toward each other
+    dets_f1 = [
+        Detection(bbox=(100, 100, 150, 150), class_name="car", confidence=0.85),
+        Detection(bbox=(300, 100, 350, 150), class_name="car", confidence=0.88),
+    ]
+    tracks_f1 = tracker.update(dets_f1)
+    assert len(tracks_f1) == 2
+    assert acc_detector.update(tracks_f1) is None
+
+    # Frame 2: Moving closer fast (closing speed)
+    dets_f2 = [
+        Detection(bbox=(160, 100, 210, 150), class_name="car", confidence=0.85),
+        Detection(bbox=(240, 100, 290, 150), class_name="car", confidence=0.88),
+    ]
+    tracks_f2 = tracker.update(dets_f2)
+    assert len(tracks_f2) == 2
+    assert acc_detector.update(tracks_f2) is None
+
+    # Frame 3: Near contact, high approach speed
+    dets_f3 = [
+        Detection(bbox=(190, 100, 240, 150), class_name="car", confidence=0.85),
+        Detection(bbox=(210, 100, 260, 150), class_name="car", confidence=0.88),
+    ]
+    tracks_f3 = tracker.update(dets_f3)
+    acc_detector.update(tracks_f3)
+
+    # Frames 4-7: Collision overlap & sudden stop (motion halted)
+    confirmed_event = None
+    for f in range(4, 9):
+        dets_overlap = [
+            Detection(bbox=(195, 100, 245, 150), class_name="car", confidence=0.85),
+            Detection(bbox=(205, 100, 255, 150), class_name="car", confidence=0.88),
+        ]
+        tracks = tracker.update(dets_overlap)
+        event = acc_detector.update(tracks)
+        if event:
+            confirmed_event = event
+
+    assert confirmed_event is not None
+    assert confirmed_event.accident_detected is True
+    assert confirmed_event.confidence >= 0.50
+    assert confirmed_event.event_type in (EventType.VEHICLE_COLLISION, EventType.POSSIBLE_ACCIDENT)
+    assert len(confirmed_event.track_ids) >= 1
+
+
+def test_pipeline_propagation_direct_model_event():
+    from nexguard.accident.accident_detector import AccidentDetector
+    from nexguard.models.schemas import Detection, DetectionMode, EventType
+    from nexguard.tracking.tracker import ObjectTracker
+
+    tracker = ObjectTracker()
+    acc_detector = AccidentDetector(confirm_frames=2, threshold=0.50)
+
+    confirmed_event = None
+    for _ in range(4):
+        dets = [
+            Detection(
+                bbox=(200, 200, 350, 350),
+                class_name="severe_accident",
+                confidence=0.89,
+                is_accident=True,
+            )
+        ]
+        tracks = tracker.update(dets)
+        event = acc_detector.update(tracks)
+        if event:
+            confirmed_event = event
+
+    assert confirmed_event is not None
+    assert confirmed_event.is_model_confirmed is True
+    assert confirmed_event.event_type == EventType.CONFIRMED_MODEL_EVENT
+    assert confirmed_event.detection_mode == DetectionMode.TRAINED_MODEL
