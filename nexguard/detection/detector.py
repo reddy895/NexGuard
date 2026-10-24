@@ -183,6 +183,39 @@ class ObjectDetector:
                 error_message=err_msg,
             )
 
+    def _preprocess_frame(self, frame: np.ndarray) -> Optional[np.ndarray]:
+        """
+        Validates, color-converts, and pre-processes input frame for inference.
+        Ensures a 3-channel BGR uint8 contiguous array.
+        """
+        if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
+            return None
+
+        if len(frame.shape) == 2:
+            import cv2
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        elif len(frame.shape) == 3:
+            channels = frame.shape[2]
+            if channels == 4:
+                import cv2
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+            elif channels == 1:
+                import cv2
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            elif channels != 3:
+                log.warning(f"Unsupported channel count for inference: {channels}")
+                return None
+        else:
+            return None
+
+        if frame.dtype != np.uint8:
+            frame = np.clip(frame, 0, 255).astype(np.uint8)
+
+        if not frame.flags.c_contiguous:
+            frame = np.ascontiguousarray(frame)
+
+        return frame
+
     def detect(self, frame: np.ndarray) -> List[Detection]:
         """
         Runs object detection on a single frame.
@@ -196,9 +229,14 @@ class ObjectDetector:
         if not self.model_ready or self.model is None:
             return []
 
+        processed_frame = self._preprocess_frame(frame)
+        if processed_frame is None:
+            log.warning("Invalid or corrupt frame received for inference — skipping.")
+            return []
+
         try:
             results = self.model(
-                frame,
+                processed_frame,
                 verbose=False,
                 conf=self.conf,
                 iou=self.iou,
