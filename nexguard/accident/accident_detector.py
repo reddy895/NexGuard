@@ -309,22 +309,32 @@ class AccidentDetector:
             score += 0.20 * contribution
             signals.append(f"approach_velocity={approach_vel:.1f}px/frame")
 
-        # 4. Sudden deceleration on either vehicle
+        # 4. Sudden deceleration on either or both vehicles (post-impact loss of momentum)
+        decel_count = 0
         for t in (t1, t2):
             drop = t.speed_drop_ratio
             if drop >= cfg.speed_drop_threshold:
                 score += 0.15
+                decel_count += 1
                 signals.append(
                     f"speed_drop={drop:.0%} on track #{t.track_id}"
                 )
+        if decel_count == 2:
+            # Mutual deceleration bonus: both vehicles arrested movement simultaneously
+            score += 0.10
+            signals.append("mutual_deceleration: both vehicles rapidly decelerating together")
 
-        # 5. Heading divergence (objects bouncing apart after collision)
+        # 5. Heading divergence / post-impact deflection
         if t1.speed > 0.5 and t2.speed > 0.5:
             hdiff = _heading_diff(t1.heading, t2.heading)
             if hdiff > cfg.direction_change_threshold:
                 contribution = min(1.0, (hdiff - cfg.direction_change_threshold) / 90.0)
                 score += 0.15 * contribution
                 signals.append(f"heading_divergence={hdiff:.0f}deg")
+        elif (t1.speed < 0.5 or t2.speed < 0.5) and iou_val >= cfg.collision_iou_threshold:
+            # Post-impact standstill after overlap
+            score += 0.10
+            signals.append("post_impact_standstill: vehicle halted during/after overlap")
 
         # 6. Person near collision zone
         if persons:
