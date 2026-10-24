@@ -252,7 +252,17 @@ class ObjectDetector:
                 device=self.device,
             )[0]
         except Exception as e:
-            log.warning(f"Detection error on frame: {e}")
+            err_name = type(e).__name__
+            if "out of memory" in str(e).lower() or "OutOfMemory" in err_name:
+                log.error(f"Inference OOM on device '{self.device}': {e}. Frame skipped.")
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            else:
+                log.warning(f"Detection error on frame: {e} ({err_name})")
             return []
         finally:
             self.last_inference_time_ms = (time.monotonic() - t0) * 1000.0
