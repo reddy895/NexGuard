@@ -34,7 +34,7 @@ from datetime import datetime
 from typing import Deque, Dict, List, Optional, Tuple
 
 from config import cfg
-from nexguard.models.schemas import AccidentEvent, EventType, Track
+from nexguard.models.schemas import AccidentEvent, DetectionMode, EventType, Track
 from nexguard.utils.logging import get_logger
 
 log = get_logger("nexguard.accident")
@@ -144,11 +144,12 @@ class AccidentDetector:
         if len(self._frame_buffer) < 2:
             return None
 
-        # Evaluate all vehicle pairs in the current frame
+        # Evaluate all tracks in the current frame
+        accident_tracks = [t for t in tracks if t.is_accident]
         vehicles = [t for t in tracks if t.is_vehicle and t.age >= 3]
         persons = [t for t in tracks if t.is_person]
 
-        event = self._evaluate(vehicles, persons)
+        event = self._evaluate(vehicles, persons, accident_tracks)
 
         if event and event.confidence >= self._threshold:
             self._consecutive_detections += 1
@@ -163,6 +164,7 @@ class AccidentDetector:
                 log.info(
                     f"[ACCIDENT CONFIRMED] confidence={event.confidence:.2f} "
                     f"type={event.event_type.value} "
+                    f"mode={event.detection_mode.value} "
                     f"tracks={event.track_ids}"
                 )
                 return event
@@ -170,18 +172,28 @@ class AccidentDetector:
         return None
 
     def _evaluate(
-        self, vehicles: List[Track], persons: List[Track]
+        self,
+        vehicles: List[Track],
+        persons: List[Track],
+        accident_tracks: Optional[List[Track]] = None,
     ) -> Optional[AccidentEvent]:
         """
-        Evaluates all vehicle-vehicle pairs and vehicle-person proximity.
+        Evaluates direct accident model predictions first; falls back to
+        kinematic multi-vehicle collision scoring.
 
         Returns:
             The highest-confidence AccidentEvent found, or None.
         """
+        # 1. Direct trained accident model detections take precedence
+        if accident_tracks:
+            model_event = self._evaluate_model_tracks(accident_tracks)
+            if model_event:
+                return model_event
+
         best_event: Optional[AccidentEvent] = None
         best_conf: float = 0.0
 
-        # --- Vehicle-vehicle analysis ---
+        # 2. Vehicle-vehicle kinematic analysis
         for i in range(len(vehicles)):
             for j in range(i + 1, len(vehicles)):
                 t1, t2 = vehicles[i], vehicles[j]
@@ -199,9 +211,11 @@ class AccidentDetector:
                         event_type=etype,
                         signals=signals,
                         frame_index=self._frame_index,
+                        detection_mode=DetectionMode.HEURISTIC,
+                        is_model_confirmed=False,
                     )
 
-        # --- Single-vehicle sudden-stop (potential collision with static object) ---
+        # 3. Single-vehicle sudden-stop (potential collision with static barrier/pole)
         for t in vehicles:
             conf, signals = self._score_sudden_stop(t)
             if conf > best_conf:
@@ -215,9 +229,41 @@ class AccidentDetector:
                     event_type=EventType.SUDDEN_STOP,
                     signals=signals,
                     frame_index=self._frame_index,
+                    detection_mode=DetectionMode.HEURISTIC,
+                    is_model_confirmed=False,
                 )
 
         return best_event
+
+    def _evaluate_model_tracks(self, accident_tracks: List[Track]) -> Optional[AccidentEvent]:
+        """Evaluates direct model-detected accident tracks from trained accident models."""
+        best_track: Optional[Track] = None
+        best_conf = 0.0
+        for t in accident_tracks:
+            # Score combines detection confidence with track temporal stability
+            stability = min(t.hits / max(t.age, 1), 1.0)
+            conf = min(1.0, t.confidence * 0.80 + stability * 0.20)
+            if conf > best_conf:
+                best_conf = conf
+                best_track = t
+
+        if best_track is not None:
+            return AccidentEvent(
+                accident_detected=best_conf >= self._threshold,
+                confidence=best_conf,
+                timestamp=datetime.now().isoformat(),
+                track_ids=[best_track.track_id],
+                location={"cx": round(best_track.cx, 1), "cy": round(best_track.cy, 1)},
+                event_type=EventType.CONFIRMED_MODEL_EVENT,
+                signals=[
+                    f"trained_model_detection class={best_track.class_name} "
+                    f"conf={best_track.confidence:.2f} hits={best_track.hits}/{best_track.age}"
+                ],
+                frame_index=self._frame_index,
+                detection_mode=DetectionMode.TRAINED_MODEL,
+                is_model_confirmed=True,
+            )
+        return None
 
     def _score_pair(
         self,

@@ -42,6 +42,8 @@ class EventType(str, Enum):
     PERSON_FALL = "person_fall"
     SUDDEN_STOP = "sudden_stop"
     NEAR_MISS = "near_miss"
+    CONFIRMED_MODEL_EVENT = "confirmed_model_event"
+    POSSIBLE_ACCIDENT = "possible_accident"
     UNKNOWN = "unknown"
 
 
@@ -247,6 +249,8 @@ class AccidentEvent:
     event_type: EventType
     signals: List[str]                  # Human-readable evidence signals
     frame_index: int = 0
+    detection_mode: DetectionMode = DetectionMode.HEURISTIC
+    is_model_confirmed: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -258,6 +262,8 @@ class AccidentEvent:
             "event_type": self.event_type.value,
             "signals": self.signals,
             "frame_index": self.frame_index,
+            "detection_mode": self.detection_mode.value,
+            "is_model_confirmed": self.is_model_confirmed,
         }
 
 
