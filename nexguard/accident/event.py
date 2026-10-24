@@ -10,6 +10,7 @@ Lifecycle:
 
 from __future__ import annotations
 
+import math
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -46,7 +47,26 @@ class IncidentManager:
         self._active: Dict[str, Incident] = {}
         self._history: List[Incident] = []
         self._last_alert_times: Dict[str, float] = {}
+        self._last_global_alert_time: float = 0.0
         self._frame_index: int = 0
+
+    def _find_active_match(
+        self, track_ids: List[int], location: Dict[str, float]
+    ) -> Optional[Incident]:
+        """Finds an existing active incident matching the tracks or spatial location."""
+        track_set = set(track_ids)
+        cx, cy = location.get("cx", 0.0), location.get("cy", 0.0)
+
+        for inc in self._active.values():
+            # Match 1: Overlapping involved tracks
+            if track_set.intersection(inc.involved_tracks):
+                return inc
+            # Match 2: Proximity within 150 pixels of existing incident center
+            inc_cx = inc.location.get("cx", 0.0)
+            inc_cy = inc.location.get("cy", 0.0)
+            if math.hypot(cx - inc_cx, cy - inc_cy) < 150.0:
+                return inc
+        return None
 
     def create_incident(
         self,
@@ -56,7 +76,8 @@ class IncidentManager:
         person_involvements: Optional[List[PersonInvolvement]] = None,
     ) -> Incident:
         """
-        Creates a new Incident from a confirmed AccidentEvent.
+        Creates a new Incident from a confirmed AccidentEvent or updates
+        an existing active incident to prevent duplicate alerts.
 
         Args:
             event:            Confirmed AccidentEvent.
@@ -65,8 +86,30 @@ class IncidentManager:
             person_involvements: Optional person involvement records.
 
         Returns:
-            Newly created Incident object.
+            Created or updated Incident object.
         """
+        existing = self._find_active_match(event.track_ids, event.location)
+        if existing is not None:
+            # Deduplicate: update active incident instead of creating a new one
+            existing.confidence = max(existing.confidence, event.confidence)
+            if severity_result.score > existing.severity_score:
+                existing.severity = severity_result.severity
+                existing.severity_score = severity_result.score
+                existing.severity_reasons = severity_result.reasons
+            # Merge involved tracks and vehicles
+            existing.involved_tracks = list(set(existing.involved_tracks + event.track_ids))
+            new_veh = [t.track_id for t in involved_tracks if t.is_vehicle]
+            existing.involved_vehicles = list(set(existing.involved_vehicles + new_veh))
+            existing.frame_index = event.frame_index
+            for sig in event.signals:
+                if sig not in existing.signals:
+                    existing.signals.append(sig)
+            log.info(
+                f"[INCIDENT DEDUPLICATED] Updated active incident {existing.incident_id} "
+                f"(tracks={existing.involved_tracks})"
+            )
+            return existing
+
         incident = Incident(
             start_time=event.timestamp,
             event_type=event.event_type,
@@ -100,16 +143,21 @@ class IncidentManager:
         Returns True if an alert should be sent for this incident.
 
         Enforces:
-        - Initial alert (CONFIRMED → ALERT_SENT)
+        - Initial alert (CONFIRMED and not yet sent)
         - Cooldown between repeat alerts for the same incident
-        - Cooldown between different incidents
+        - Minimum global alert spacing to prevent flood
         """
         now = time.time()
         last = self._last_alert_times.get(incident.incident_id, 0.0)
 
-        if incident.status == IncidentStatus.CONFIRMED:
-            return True  # First alert always sends
+        # First alert dispatch
+        if incident.status == IncidentStatus.CONFIRMED and incident.alert_status != "SENT":
+            # Avoid sending rapid bursts within 3s across any incident
+            if (now - self._last_global_alert_time) < 3.0 and incident.severity != Severity.CRITICAL:
+                return False
+            return True
 
+        # Re-alerting cooldown enforcement for existing incident
         if (now - last) >= self._cooldown_s:
             # Escalation — only re-alert if severity is HIGH or CRITICAL
             if incident.severity in (Severity.HIGH, Severity.CRITICAL):
@@ -119,9 +167,11 @@ class IncidentManager:
 
     def mark_alert_sent(self, incident: Incident) -> None:
         """Updates incident status after alert dispatch."""
+        now = time.time()
         incident.mark_alert_sent()
         incident.status = IncidentStatus.MONITORING
-        self._last_alert_times[incident.incident_id] = time.time()
+        self._last_alert_times[incident.incident_id] = now
+        self._last_global_alert_time = now
         log.info(f"[ALERT SENT] {incident.incident_id}")
 
     def resolve_stale_incidents(self, active_track_ids: List[int]) -> List[Incident]:
