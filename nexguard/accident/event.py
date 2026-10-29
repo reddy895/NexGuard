@@ -49,6 +49,12 @@ class IncidentManager:
 
     # ── Public interface ───────────────────────────────────────────────────
 
+    def reset(self) -> None:
+        """Resets active incidents and history for a new session."""
+        self._active.clear()
+        self._history.clear()
+        self._frame_index = 0
+
     def update_frame(self, frame_index: int) -> None:
         """Records the current frame index for lifecycle management."""
         self._frame_index = frame_index

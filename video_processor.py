@@ -251,6 +251,7 @@ class VideoProcessor:
                     current_severity = max(
                         (inc.severity for inc in active),
                         key=lambda s: sev_order.index(s) if s in sev_order else 0,
+                        default=Severity.NO_ACCIDENT,
                     )
                 elif accident_event is None:
                     # Decay toward NO_ACCIDENT when no active incidents
@@ -295,10 +296,8 @@ class VideoProcessor:
         """Resets all stateful components before starting a new source."""
         self._tracker.reset()
         self._acc_detector.reset()
-        # IncidentManager: create a fresh one to clear previous session incidents
-        self._incidents._active.clear()
-        self._incidents._history.clear()
-        self._incidents._frame_index = 0
+        # IncidentManager: clear previous session incidents
+        self._incidents.reset()
 
     # ── Terminal output ────────────────────────────────────────────────────
 
