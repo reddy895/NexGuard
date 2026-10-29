@@ -126,12 +126,13 @@ class VideoProcessor:
         cv2.destroyAllWindows()
         print("\n[INFO] Webcam released. Returning to menu.")
 
-    def run_file(self, file_path: str) -> None:
+    def run_file(self, file_path: str, loop: bool = True) -> None:
         """
         Processes a local video file frame-by-frame.
 
         Args:
             file_path: Absolute or relative path to the video file.
+            loop: Whether to loop the video continuously until user exits (default True).
         """
         path = Path(file_path)
         if not path.exists():
@@ -156,10 +157,10 @@ class VideoProcessor:
             f"[INFO] {w}×{h} @ {source_fps:.1f} FPS — "
             f"{total_frames} frames ({duration_s:.1f}s)"
         )
-        print("[INFO] Press Q or ESC in the video window to stop.\n")
+        print("[INFO] Continuous playback active — press Q or ESC in the video window to stop.\n")
 
         self._reset_state()
-        self._run_loop(cap, is_live=False, source_fps=source_fps, total_frames=total_frames)
+        self._run_loop(cap, is_live=False, source_fps=source_fps, total_frames=total_frames, loop=loop)
 
         cap.release()
         cv2.destroyAllWindows()
@@ -174,13 +175,14 @@ class VideoProcessor:
         is_live: bool,
         source_fps: float,
         total_frames: int = 0,
+        loop: bool = False,
     ) -> None:
         """
         Main frame processing loop shared by webcam and file modes.
 
         Exits when:
         - Q/ESC is pressed in the OpenCV window
-        - The video file ends
+        - The video file ends (if loop=False or file cannot be rewound)
         - The camera is disconnected
         """
         fps_counter = FPSCounter()
@@ -198,9 +200,20 @@ class VideoProcessor:
                     ok, frame = cap.read()
 
                 if not ok:
-                    if not is_live:
-                        log.info("Video file ended at frame %d.", frame_index)
-                    break
+                    if not is_live and loop:
+                        # Video file reached end — rewind to beginning for continuous loop
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ok, frame = cap.read()
+                        if not ok:
+                            log.info("Video file ended and could not be re-read.")
+                            break
+                        # Reset tracking state for seamless loop restart
+                        self._tracker.reset()
+                        self._acc_detector.reset()
+                    else:
+                        if not is_live:
+                            log.info("Video file ended at frame %d.", frame_index)
+                        break
 
                 frame_index += 1
                 fps_counter.tick()

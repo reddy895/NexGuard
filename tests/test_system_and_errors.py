@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 import numpy as np
+import cv2
 
 from config import NexGuardConfig, cfg
 from nexguard.accident.accident_detector import AccidentDetector
@@ -159,6 +160,46 @@ class TestCleanReturnToMenu:
         mock_destroy.assert_called_once()
         captured = capsys.readouterr()
         assert "Playback finished. Returning to menu." in captured.out
+
+    @patch("cv2.destroyAllWindows")
+    @patch("cv2.VideoCapture")
+    def test_video_loops_continuously_until_quit(
+        self, mock_cap_cls, mock_destroy, capsys
+    ):
+        mock_cap = MagicMock()
+        mock_cap.isOpened.return_value = True
+        mock_cap.get.return_value = 10.0
+
+        # Frame 1: valid, Frame 2: EOF (triggers rewind), Frame 3: valid after rewind
+        dummy = np.zeros((480, 640, 3), dtype=np.uint8)
+        mock_cap.read.side_effect = [(True, dummy), (False, None), (True, dummy)]
+        mock_cap_cls.return_value = mock_cap
+
+        detector = MagicMock(spec=ObjectDetector)
+        detector.detect.return_value = []
+        tracker = MagicMock(spec=ObjectTracker)
+        tracker.update.return_value = []
+        acc_detector = MagicMock(spec=AccidentDetector)
+        acc_detector.update.return_value = None
+        severity = MagicMock(spec=SeverityClassifier)
+        incidents = MagicMock(spec=IncidentManager)
+        incidents.active_incidents = []
+        overlay = MagicMock(spec=Overlay)
+        overlay.draw.return_value = dummy
+        # Exit on the rewound frame (2nd valid frame)
+        overlay.show.side_effect = [0, ord("q")]
+
+        proc = VideoProcessor(detector, tracker, acc_detector, severity, incidents, overlay)
+        with patch.object(Path, "exists", return_value=True):
+            proc.run_file("test.mp4", loop=True)
+
+        # Assert rewind occurred
+        mock_cap.set.assert_called_with(cv2.CAP_PROP_POS_FRAMES, 0)
+        mock_cap.release.assert_called_once()
+        mock_destroy.assert_called_once()
+        captured = capsys.readouterr()
+        assert "Continuous playback active" in captured.out
+        assert "Q pressed — stopping." in captured.out
 
 
 # ===========================================================================
