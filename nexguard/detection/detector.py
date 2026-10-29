@@ -3,40 +3,42 @@ NexGuard — YOLO Object Detector
 =================================
 Wraps Ultralytics YOLO for person and vehicle detection.
 
-Design decisions:
+Design notes:
 - Single model instance, no reload across frames.
-- Filters detections to only NexGuard target classes (persons, vehicles).
-- Returns structured Detection objects rather than raw YOLO tensors.
-- Gracefully handles CUDA unavailability by falling back to CPU.
-- verbose=False to suppress per-frame YOLO logging noise.
+- Filters detections to NexGuard target classes only.
+- Returns structured Detection objects, not raw YOLO tensors.
+- GPU auto-selection with CPU fallback.
+- verbose=False suppresses per-frame YOLO log noise.
 """
 
+from __future__ import annotations
+
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
 
-from config import cfg, MAX_FPS
+from config import cfg
 from nexguard.models.schemas import Detection, ModelDiagnosticInfo, ModelType
 from nexguard.utils.logging import get_logger
 
-log = get_logger("nexguard.detection")
+log = get_logger("nexguard.detector")
 
 
 class ObjectDetector:
     """
-    YOLO-based object detector for NexGuard surveillance.
+    YOLO-based object detector for NexGuard road-accident detection.
 
     Attributes:
-        model_path:  Path to the YOLO weights file.
-        device:      Inference device ('cuda', 'cpu', 'mps').
-        conf:        Confidence threshold [0, 1].
-        iou:         NMS IoU threshold [0, 1].
-        imgsz:       Input resolution fed to the model.
-        model:       Loaded YOLO model instance.
-        model_ready: True if the model loaded successfully.
-        diagnostic_info: ModelDiagnosticInfo containing detailed inspection metadata.
+        model_path:     Path to YOLO weights.
+        device:         Inference device string ('cuda', 'cpu', 'mps').
+        conf:           Detection confidence threshold [0, 1].
+        iou:            NMS IoU threshold [0, 1].
+        imgsz:          Input resolution fed to the model.
+        model_ready:    True when the model has loaded successfully.
+        last_inference_time_ms: Milliseconds spent on the last inference call.
     """
 
     def __init__(
@@ -48,56 +50,42 @@ class ObjectDetector:
         imgsz: Optional[int] = None,
     ) -> None:
         self.model_path = model_path or cfg.model_path
-        self.device = device or cfg.device
+        self.device = device or cfg.resolve_device()
         self.conf = conf if conf is not None else cfg.confidence_threshold
         self.iou = iou if iou is not None else cfg.iou_threshold
         self.imgsz = imgsz or cfg.inference_size
 
         self.model = None
-        self.model_ready = False
+        self.model_ready: bool = False
         self._class_names: dict = {}
         self.diagnostic_info: Optional[ModelDiagnosticInfo] = None
         self.last_inference_time_ms: float = 0.0
-        self._inference_lock: threading.Lock = threading.Lock()
+        self._lock = threading.Lock()
 
         self._load_model()
 
+    # ── Model loading ──────────────────────────────────────────────────────
+
     def _load_model(self) -> None:
         """Loads the YOLO model. Falls back to CPU if CUDA is unavailable."""
-        dataset_p = Path(cfg.accident_dataset_path)
-        dataset_status = "FOUND" if dataset_p.exists() else "MISSING (datasets/accident/data.yaml not found)"
-
         try:
             from ultralytics import YOLO
         except ImportError:
-            err_msg = "ultralytics package not found. Install with: pip install ultralytics"
-            log.error(err_msg)
-            self.diagnostic_info = ModelDiagnosticInfo(
-                model_path=self.model_path,
-                device=self.device,
-                model_type=ModelType.UNKNOWN,
-                class_count=0,
-                classes={},
-                accident_classes_found=[],
-                inference_size=self.imgsz,
-                confidence_threshold=self.conf,
-                max_fps=cfg.max_fps,
-                dataset_status=dataset_status,
-                dataset_path=str(dataset_p),
-                ready=False,
-                error_message=err_msg,
+            self._set_failed(
+                "ultralytics package not found. "
+                "Install with: pip install ultralytics"
             )
             return
 
-        # Resolve model path — download if not local
         model_p = Path(self.model_path)
         if not model_p.exists():
             log.info(
-                f"Model not found at {self.model_path} — "
-                "Ultralytics will auto-download the weights."
+                "Model weights not found at '%s' — "
+                "Ultralytics will attempt to download them.",
+                self.model_path,
             )
 
-        # Attempt CUDA, fall back to CPU
+        # CUDA availability guard
         device = self.device
         try:
             import torch
@@ -106,117 +94,93 @@ class ObjectDetector:
                 device = "cpu"
                 self.device = "cpu"
         except ImportError:
-            log.warning("PyTorch not available — using CPU inference.")
             device = "cpu"
             self.device = "cpu"
 
         try:
             self.model = YOLO(self.model_path)
-            # Warm-up inference on a blank frame
+            # Warm-up pass to pre-compile kernels
             dummy = np.zeros((64, 64, 3), dtype=np.uint8)
             self.model(dummy, verbose=False, device=device)
             self._class_names = self.model.names or {}
             self.model_ready = True
 
-            # Inspect model classes for accident detection capability
-            found_accident = [
-                name for name in self._class_names.values()
-                if any(acc.lower() in name.lower() for acc in cfg.accident_classes)
+            # Classify model by class names
+            found_acc = [
+                n for n in self._class_names.values()
+                if any(a.lower() in n.lower() for a in cfg.accident_classes)
             ]
-            found_vehicles = [
-                name for name in self._class_names.values()
-                if name in cfg.vehicle_classes
+            found_veh = [
+                n for n in self._class_names.values()
+                if n in cfg.vehicle_classes
             ]
-
-            if found_accident and found_vehicles:
-                model_type = ModelType.HYBRID_DETECTOR
-            elif found_accident:
-                model_type = ModelType.ACCIDENT_DETECTOR
+            if found_acc and found_veh:
+                mtype = ModelType.HYBRID_DETECTOR
+            elif found_acc:
+                mtype = ModelType.ACCIDENT_DETECTOR
             else:
-                model_type = ModelType.GENERIC_DETECTOR
+                mtype = ModelType.GENERIC_DETECTOR
 
             self.diagnostic_info = ModelDiagnosticInfo(
                 model_path=str(model_p.resolve() if model_p.exists() else model_p),
                 device=device,
-                model_type=model_type,
+                model_type=mtype,
                 class_count=len(self._class_names),
                 classes=dict(self._class_names),
-                accident_classes_found=found_accident,
+                accident_classes_found=found_acc,
                 inference_size=self.imgsz,
                 confidence_threshold=self.conf,
-                max_fps=cfg.max_fps,
-                dataset_status=dataset_status,
-                dataset_path=str(dataset_p),
+                dataset_status="N/A" if not found_acc else "embedded",
                 ready=True,
             )
-
-            if cfg.strict_accident_model and model_type == ModelType.GENERIC_DETECTOR:
-                err_msg = (
-                    "NEXGUARD ERROR: ACCIDENT DATASET REQUIRED — "
-                    f"Model '{self.model_path}' is a generic object detector with {len(self._class_names)} classes "
-                    "and contains no accident-specific classes. Fine-tune or supply an accident model."
-                )
-                log.error(err_msg)
-                self.model_ready = False
-                self.diagnostic_info.ready = False
-                self.diagnostic_info.error_message = err_msg
-                return
-
             log.info(
-                f"Detector ready — model={self.model_path} ({model_type.value})  "
-                f"device={device}  conf={self.conf:.2f}  iou={self.iou:.2f}  imgsz={self.imgsz}"
+                "Detector ready — model=%s (%s) device=%s conf=%.2f",
+                self.model_path, mtype.value, device, self.conf,
             )
-        except Exception as e:
-            err_msg = f"Failed to load YOLO model: {e}"
-            log.error(err_msg)
-            self.model_ready = False
-            self.diagnostic_info = ModelDiagnosticInfo(
-                model_path=self.model_path,
-                device=device,
-                model_type=ModelType.UNKNOWN,
-                class_count=0,
-                classes={},
-                accident_classes_found=[],
-                inference_size=self.imgsz,
-                confidence_threshold=self.conf,
-                max_fps=cfg.max_fps,
-                dataset_status=dataset_status,
-                dataset_path=str(dataset_p),
-                ready=False,
-                error_message=err_msg,
-            )
+        except Exception as exc:
+            self._set_failed(f"Failed to load YOLO model: {exc}")
 
-    def _preprocess_frame(self, frame: np.ndarray) -> Optional[np.ndarray]:
-        """
-        Validates, color-converts, and pre-processes input frame for inference.
-        Ensures a 3-channel BGR uint8 contiguous array.
-        """
+    def _set_failed(self, message: str) -> None:
+        """Sets the detector into a failed state with a diagnostic message."""
+        log.error(message)
+        self.model_ready = False
+        self.diagnostic_info = ModelDiagnosticInfo(
+            model_path=self.model_path,
+            device=self.device,
+            model_type=ModelType.UNKNOWN,
+            class_count=0,
+            classes={},
+            accident_classes_found=[],
+            inference_size=self.imgsz,
+            confidence_threshold=self.conf,
+            dataset_status="UNAVAILABLE",
+            ready=False,
+            error_message=message,
+        )
+
+    # ── Inference ──────────────────────────────────────────────────────────
+
+    def _preprocess(self, frame: np.ndarray) -> Optional[np.ndarray]:
+        """Validates and normalises an input frame for YOLO inference."""
         if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
             return None
-
-        if len(frame.shape) == 2:
-            import cv2
+        import cv2
+        if frame.ndim == 2:
             frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-        elif len(frame.shape) == 3:
-            channels = frame.shape[2]
-            if channels == 4:
-                import cv2
+        elif frame.ndim == 3:
+            ch = frame.shape[2]
+            if ch == 4:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-            elif channels == 1:
-                import cv2
+            elif ch == 1:
                 frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-            elif channels != 3:
-                log.warning(f"Unsupported channel count for inference: {channels}")
+            elif ch != 3:
                 return None
         else:
             return None
-
         if frame.dtype != np.uint8:
             frame = np.clip(frame, 0, 255).astype(np.uint8)
-
         if not frame.flags.c_contiguous:
             frame = np.ascontiguousarray(frame)
-
         return frame
 
     def detect(
@@ -225,39 +189,38 @@ class ObjectDetector:
         frame_number: Optional[int] = None,
     ) -> List[Detection]:
         """
-        Runs object detection on a single frame.
+        Runs object detection on a single BGR frame.
 
         Args:
-            frame: BGR numpy array from OpenCV.
-            frame_number: Optional frame index for detailed logging.
+            frame:        BGR numpy array from OpenCV.
+            frame_number: Optional frame index used for debug logging.
 
         Returns:
-            List of Detection objects filtered to NexGuard target classes.
+            List of Detection objects for NexGuard target classes only.
         """
         if not self.model_ready or self.model is None:
             return []
 
-        processed_frame = self._preprocess_frame(frame)
-        if processed_frame is None:
-            log.warning("Invalid or corrupt frame received for inference — skipping.")
+        processed = self._preprocess(frame)
+        if processed is None:
+            log.warning("Invalid frame for inference (frame %s) — skipping.", frame_number)
             return []
 
-        import time
         t0 = time.monotonic()
-        with self._inference_lock:
+        with self._lock:
             try:
                 results = self.model(
-                    processed_frame,
+                    processed,
                     verbose=False,
                     conf=self.conf,
                     iou=self.iou,
                     imgsz=self.imgsz,
                     device=self.device,
                 )[0]
-            except Exception as e:
-                err_name = type(e).__name__
-                if "out of memory" in str(e).lower() or "OutOfMemory" in err_name:
-                    log.error(f"Inference OOM on device '{self.device}': {e}. Frame skipped.")
+            except Exception as exc:
+                err = type(exc).__name__
+                if "out of memory" in str(exc).lower() or "OutOfMemory" in err:
+                    log.error("Inference OOM on device '%s' — frame skipped.", self.device)
                     try:
                         import torch
                         if torch.cuda.is_available():
@@ -265,7 +228,7 @@ class ObjectDetector:
                     except Exception:
                         pass
                 else:
-                    log.warning(f"Detection error on frame: {e} ({err_name})")
+                    log.warning("Inference error frame %s: %s (%s)", frame_number, exc, err)
                 return []
             finally:
                 self.last_inference_time_ms = (time.monotonic() - t0) * 1000.0
@@ -276,56 +239,39 @@ class ObjectDetector:
         for box in results.boxes:
             cls_id = int(box.cls[0])
             cls_name = self._class_names.get(cls_id, f"class_{cls_id}")
-
             is_acc = (
                 cls_name in cfg.accident_classes
-                or any(acc.lower() in cls_name.lower() for acc in cfg.accident_classes)
+                or any(a.lower() in cls_name.lower() for a in cfg.accident_classes)
             )
-
-            # Accept if in target classes, or matches accident class, or model is dedicated accident detector
-            if (
-                cls_name not in target_classes
-                and not is_acc
-                and self.diagnostic_info
-                and self.diagnostic_info.model_type != ModelType.ACCIDENT_DETECTOR
-            ):
-                continue
+            if cls_name not in target_classes and not is_acc:
+                continue  # skip irrelevant classes (e.g. 'apple', 'vase')
 
             xyxy = box.xyxy[0].cpu().numpy()
-            conf = float(box.conf[0].cpu().numpy())
-
-            f_str = f"Frame {frame_number}" if frame_number is not None else "Frame"
+            conf_val = float(box.conf[0].cpu().numpy())
             log.debug(
-                f"[DETECTION] {f_str} | Class={cls_name} (ID={cls_id}) | "
-                f"Conf={conf:.2f} | Box=[{float(xyxy[0]):.1f}, {float(xyxy[1]):.1f}, {float(xyxy[2]):.1f}, {float(xyxy[3]):.1f}] | "
-                f"Time={self.last_inference_time_ms:.1f}ms"
+                "Frame %s | %s (%.2f) | box=[%.0f,%.0f,%.0f,%.0f] | %.1fms",
+                frame_number, cls_name, conf_val,
+                float(xyxy[0]), float(xyxy[1]), float(xyxy[2]), float(xyxy[3]),
+                self.last_inference_time_ms,
             )
-
-            detections.append(
-                Detection(
-                    bbox=(
-                        float(xyxy[0]),
-                        float(xyxy[1]),
-                        float(xyxy[2]),
-                        float(xyxy[3]),
-                    ),
-                    class_name=cls_name,
-                    confidence=conf,
-                    class_id=cls_id,
-                    is_accident=is_acc,
-                )
-            )
+            detections.append(Detection(
+                bbox=(float(xyxy[0]), float(xyxy[1]), float(xyxy[2]), float(xyxy[3])),
+                class_name=cls_name,
+                confidence=conf_val,
+                class_id=cls_id,
+                is_accident=is_acc,
+            ))
 
         return detections
 
+    # ── Properties ─────────────────────────────────────────────────────────
+
     @property
     def class_names(self) -> dict:
-        """Returns the model's class name mapping."""
         return self._class_names
 
     @property
     def is_accident_model(self) -> bool:
-        """Returns True if the model has native accident detection classes."""
         if not self.diagnostic_info:
             return False
         return self.diagnostic_info.model_type in (
@@ -334,26 +280,24 @@ class ObjectDetector:
         )
 
     def get_diagnostic_info(self) -> ModelDiagnosticInfo:
-        """Returns startup diagnostics information."""
         if self.diagnostic_info is not None:
             return self.diagnostic_info
         return ModelDiagnosticInfo(
             model_path=self.model_path,
             device=self.device,
             model_type=ModelType.UNKNOWN,
-            class_count=len(self._class_names),
-            classes=dict(self._class_names),
+            class_count=0,
+            classes={},
             accident_classes_found=[],
             inference_size=self.imgsz,
             confidence_threshold=self.conf,
-            max_fps=cfg.max_fps,
             dataset_status="UNKNOWN",
-            ready=self.model_ready,
+            ready=False,
         )
 
     def __repr__(self) -> str:
         status = "READY" if self.model_ready else "FAILED"
         return (
-            f"ObjectDetector(model={self.model_path!r}, device={self.device!r}, "
-            f"conf={self.conf}, status={status})"
+            f"ObjectDetector(model={self.model_path!r}, "
+            f"device={self.device!r}, conf={self.conf}, status={status})"
         )
