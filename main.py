@@ -1,507 +1,199 @@
 #!/usr/bin/env python3
 """
-NexGuard — AI-Powered CCTV Surveillance & Accident Response System
-====================================================================
-Main entry point. Runs entirely from the terminal.
+NexGuard — AI Road Accident Detection System
+=============================================
+Terminal-based entry point.
 
 Usage:
-    python main.py                          # use default source (webcam 0)
-    python main.py --source 0               # webcam
-    python main.py --source test_clips/road.mp4  # video file (shows live)
-    python main.py --source rtsp://...      # IP camera
-    python main.py --no-display             # terminal-only (no OpenCV window)
-    python main.py --no-whatsapp            # skip WhatsApp bot startup
-    python main.py --help                   # show all options
+    python main.py
 
-Press Q or ESC in the video window to quit.
-Press Ctrl+C in the terminal to quit.
+The menu provides:
+  [1] Live Detection — System Camera
+  [2] Detect Accident in a Video File
+  [3] Exit
+
+Press Q or ESC in the video window to stop detection and return here.
+No internet connection, cloud service, or API key is required during detection.
 """
 
-import argparse
-import signal
+from __future__ import annotations
+
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-import cv2
+# ---------------------------------------------------------------------------
+# Dependency guard — give a clear message before any other import fails
+# ---------------------------------------------------------------------------
+def _check_deps() -> None:
+    missing = []
+    for pkg, imp in [("opencv-python", "cv2"), ("ultralytics", "ultralytics"), ("numpy", "numpy")]:
+        try:
+            __import__(imp)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print("\n[ERROR] Missing required packages:")
+        for p in missing:
+            print(f"  pip install {p}")
+        print("\nRun:  pip install -r requirements.txt\n")
+        sys.exit(1)
 
-# ── Local imports ─────────────────────────────────────────────────────────────
+_check_deps()
+
+# Standard imports (after dep check)
+import signal
+
+# Local imports
 from config import cfg
 from nexguard.accident.accident_detector import AccidentDetector
 from nexguard.accident.event import IncidentManager
-from nexguard.accident.severity import SeverityClassifier, analyze_person_involvement
-from nexguard.alerts.manager import AlertManager
-from nexguard.alerts.whatsapp import WhatsAppNotifier
+from nexguard.accident.severity import SeverityClassifier
 from nexguard.detection.detector import ObjectDetector
-from nexguard.evidence.recorder import EvidenceRecorder
-from nexguard.input.source import VideoSource
-from nexguard.models.schemas import IncidentStatus
 from nexguard.tracking.tracker import ObjectTracker
 from nexguard.utils.logging import get_logger
-from nexguard.utils.rate_limiter import MonotonicRateLimiter
-from nexguard.visualization.ui import Visualizer
+from overlay import Overlay
+from video_processor import VideoProcessor, pick_video_file
 
 log = get_logger("nexguard.main")
 
-# ─────────────────────────────────────────────────────────────────────────────
-BANNER = """
-╔══════════════════════════════════════════════════════════════╗
-║                        NEXGUARD                             ║
-║              AI CCTV ACCIDENT DETECTION SYSTEM              ║
-║                     Version 2.0.0                           ║
-╚══════════════════════════════════════════════════════════════╝
+# ---------------------------------------------------------------------------
+# Banner
+# ---------------------------------------------------------------------------
+_BANNER = """
+==================================================
+                 NEXGUARD AI
+       ROAD ACCIDENT DETECTION SYSTEM
+==================================================
 """
 
-_running = True
+_MENU = """Select an operation:
 
+  [1] Live Detection — System Camera
+  [2] Detect Accident in a Video File
+  [3] Exit
 
-def _signal_handler(sig, frame):
-    global _running
-    print("\n\n[INFO] Shutdown signal received — stopping pipeline...")
-    _running = False
+Enter your choice: """
 
+# ---------------------------------------------------------------------------
+# Startup diagnostics
+# ---------------------------------------------------------------------------
 
-signal.signal(signal.SIGINT, _signal_handler)
-signal.signal(signal.SIGTERM, _signal_handler)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="nexguard",
-        description="NexGuard — AI-Powered CCTV Surveillance & Accident Response System",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  python main.py --source 0\n"
-            "  python main.py --source test_clips/road.mp4\n"
-            "  python main.py --source rtsp://192.168.1.100:554/stream\n"
-            "  python main.py --no-display --no-whatsapp\n"
-        ),
-    )
-
-    parser.add_argument(
-        "--source",
-        default=cfg.source,
-        help="Video source: webcam index (0), file path, or RTSP URL (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--model",
-        default=cfg.model_path,
-        help="Path to YOLO model weights (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--conf",
-        type=float,
-        default=cfg.confidence_threshold,
-        help="Detection confidence threshold 0.0–1.0 (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--device",
-        default=cfg.device,
-        choices=["cpu", "cuda", "mps"],
-        help="Inference device (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--no-display",
-        action="store_true",
-        help="Disable OpenCV window — terminal output only",
-    )
-    parser.add_argument(
-        "--no-whatsapp",
-        action="store_true",
-        help="Disable WhatsApp bot startup",
-    )
-    parser.add_argument(
-        "--whatsapp-target",
-        default="9591152862",
-        help="WhatsApp target phone number (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--save-evidence",
-        action="store_true",
-        default=True,
-        help="Save evidence frames and metadata on accident (default: enabled)",
-    )
-    parser.add_argument(
-        "--accident-threshold",
-        type=float,
-        default=cfg.accident_threshold,
-        help="Accident detection confidence threshold (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--max-fps",
-        type=int,
-        default=cfg.max_fps,
-        help="Limit pipeline speed to maximum FPS (default: %(default)s, hard limit: 15)",
-    )
-    parser.add_argument(
-        "--strict-accident-model",
-        action="store_true",
-        default=cfg.strict_accident_model,
-        help="Enforce that weights must be trained for accident detection (default: false)",
-    )
-    parser.add_argument(
-        "--diagnose",
-        action="store_true",
-        help="Run in diagnostic mode on supplied source (image or video) and save annotated detections",
-    )
-
-    return parser.parse_args()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def print_startup_info(args: argparse.Namespace, detector: ObjectDetector) -> None:
+def print_startup_info(detector: ObjectDetector) -> None:
+    """Prints a startup summary to the terminal."""
     diag = detector.get_diagnostic_info()
-    print(BANNER)
-    print("─" * 64)
-    print("  NEXGUARD STARTUP DIAGNOSTICS & SYSTEM CONFIGURATION")
-    print("─" * 64)
-    print(f"  • Model Path       : {diag.model_path}")
-    print(f"  • Device           : {diag.device.upper()}")
-    print(f"  • Model Type       : {diag.model_type.value.upper()}")
-    print(f"  • Total Classes    : {diag.class_count} classes")
+    lines = [
+        "──────────────────────────────────────────────────",
+        "  NEXGUARD STARTUP DIAGNOSTICS",
+        "──────────────────────────────────────────────────",
+        f"  Model Path   : {diag.model_path}",
+        f"  Device       : {diag.device.upper()}",
+        f"  Model Type   : {diag.model_type.value.upper()}",
+        f"  Classes      : {diag.class_count} total",
+        f"  Conf Thresh  : {diag.confidence_threshold:.0%}",
+    ]
     if diag.accident_classes_found:
-        print(f"  • Accident Classes : {', '.join(diag.accident_classes_found)}")
+        lines.append(f"  Accident Cls : {', '.join(diag.accident_classes_found)}")
     else:
-        print("  • Accident Classes : None (Generic Pretrained Object Detector)")
-    print(f"  • Resolution       : {diag.inference_size}x{diag.inference_size}")
-    print(f"  • Confidence Thresh: {args.conf:.0%}")
-    print(f"  • Accident Thresh  : {args.accident_threshold:.0%}")
-    print(f"  • Configured FPS   : {args.max_fps} FPS (Hard Maximum: 15)")
-    print(f"  • Dataset Status   : {diag.dataset_status}")
-    mode_desc = (
-        "TRAINED ACCIDENT MODEL" if detector.is_accident_model
-        else "HEURISTIC PROTOTYPE (Multi-vehicle kinematics & spatial tracking)"
-    )
-    print(f"  • Detection Mode   : {mode_desc}")
-    print(f"  • Video Source     : {args.source}")
-    print(f"  • Display Window   : {'OFF' if args.no_display else 'OpenCV GUI'}")
-    print(f"  • WhatsApp Alert   : {'DISABLED' if args.no_whatsapp else 'ENABLED (scan QR if first run)'}")
-    print(f"  • Alert Target     : +{args.whatsapp_target}")
-    print(f"  • Save Evidence    : {'ENABLED' if args.save_evidence else 'DISABLED'}")
-    print("─" * 64)
-    if not args.no_display:
-        print("  Press Q or ESC in the video window to quit.")
-    print("  Press Ctrl+C in terminal to quit.")
-    print("─" * 64 + "\n")
+        lines.append("  Accident Cls : None — using HEURISTIC collision detection")
+    if not diag.ready and diag.error_message:
+        lines.append(f"  [ERROR]      : {diag.error_message}")
+    lines.append("──────────────────────────────────────────────────")
+    print("\n".join(lines))
 
 
-def print_frame_stats(
-    frame_index: int,
-    fps: float,
-    n_persons: int,
-    n_vehicles: int,
-    n_incidents: int,
-    skipped: int = 0,
-) -> None:
-    """Prints a clean periodic terminal status line."""
-    if frame_index % 15 == 0:  # Every ~1s at 15fps
-        ts = datetime.now().strftime("%H:%M:%S")
-        print(
-            f"\r  [{ts}] Frame: {frame_index:6d} | "
-            f"FPS: {fps:5.1f} | "
-            f"Skipped: {skipped:4d} | "
-            f"Persons: {n_persons} | "
-            f"Vehicles: {n_vehicles} | "
-            f"Incidents: {n_incidents}",
-            end="",
-            flush=True,
-        )
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-def run(args: argparse.Namespace) -> int:
-    """Main detection pipeline. Returns exit code."""
-    global _running
-
-    # ── Validate configuration ────────────────────────────────────────────────
-    try:
-        cfg.validate()
-    except ValueError as e:
-        # Only re-raise critical errors that would break the pipeline
-        if "WHATSAPP" in str(e) and args.no_whatsapp:
-            pass  # Fine — WhatsApp disabled anyway
-        elif "WHATSAPP" not in str(e):
-            log.error(f"Configuration error: {e}")
-            return 1
-
-    # ── Override config from CLI args ─────────────────────────────────────────
-    cfg.source = args.source
-    cfg.model_path = args.model
-    cfg.confidence_threshold = args.conf
-    cfg.device = args.device
-    cfg.accident_threshold = args.accident_threshold
-    cfg.whatsapp_enabled = not args.no_whatsapp
-    cfg.max_fps = min(args.max_fps, 15)
-    cfg.strict_accident_model = args.strict_accident_model
-
-    # ── Initialize components ─────────────────────────────────────────────────
-    log.info("Initializing NexGuard pipeline...")
-
+def build_pipeline() -> tuple:
+    """
+    Initialises and returns all pipeline components.
+    Raises SystemExit if the model cannot be loaded.
+    """
+    print("[INFO] Loading YOLO model...")
     detector = ObjectDetector()
     if not detector.model_ready:
-        log.error(
-            "YOLO model failed to load. "
-            "Ensure 'ultralytics' is installed and the model path is correct."
+        diag = detector.get_diagnostic_info()
+        print(f"\n[ERROR] Failed to load model: {diag.error_message}")
+        print(
+            "\nTroubleshooting:\n"
+            "  1. Ensure 'ultralytics' is installed:  pip install ultralytics\n"
+            "  2. Check NEXGUARD_MODEL_PATH in your .env or config.py\n"
+            "  3. Ensure internet is available for first-time weight download\n"
         )
-        return 1
+        sys.exit(1)
 
-    print_startup_info(args, detector)
+    print_startup_info(detector)
 
-    # ── Diagnostic Mode ───────────────────────────────────────────────────────
-    if args.diagnose:
-        from nexguard.detection.diagnostic import DiagnosticRunner
-        log.info(f"Running standalone diagnostic inference on source: {args.source}")
-        runner = DiagnosticRunner(detector=detector)
-        src_lower = str(args.source).lower()
+    tracker           = ObjectTracker()
+    accident_detector = AccidentDetector()
+    severity          = SeverityClassifier()
+    incidents         = IncidentManager()
+    overlay           = Overlay(window_name=cfg.window_name)
 
-        if src_lower.endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp")):
-            result = runner.run_image(args.source)
-        else:
-            result = runner.run_video(args.source, max_frames=90)
-
-        print("\n" + "═" * 64)
-        print("  NEXGUARD DIAGNOSTIC RUN SUMMARY")
-        print("═" * 64)
-        print(f"  • Source File       : {result.get('source')}")
-        print(f"  • Annotated Output  : {result.get('output_path')}")
-        print(f"  • Frames Processed  : {result.get('frame_count')}")
-        total_dets = result.get('total_detections') if 'total_detections' in result else result.get('detection_count', 0)
-        print(f"  • Total Detections  : {total_dets}")
-        if 'class_counts' in result:
-            print("  • Detections by Class:")
-            for cls_name, count in result['class_counts'].items():
-                print(f"      - {cls_name}: {count}")
-        if 'avg_inference_ms' in result:
-            print(f"  • Mean Inference    : {result['avg_inference_ms']:.1f}ms")
-            print(f"  • Effective FPS     : {result['effective_fps']:.1f} FPS (capped at 15)")
-        print("═" * 64 + "\n")
-        return 0
-
-    tracker = ObjectTracker()
-    accident_detector = AccidentDetector(threshold=args.accident_threshold)
-    severity_classifier = SeverityClassifier()
-    incident_manager = IncidentManager()
-    evidence_recorder = EvidenceRecorder() if args.save_evidence else None
-
-    # WhatsApp — starts Node.js bot in background (shows QR code if needed)
-    notifier = WhatsAppNotifier(enabled=not args.no_whatsapp)
-    alert_manager = AlertManager(notifier=notifier)
-
-    # Override default target from CLI
-    if args.whatsapp_target not in cfg.whatsapp_recipients:
-        cfg.whatsapp_recipients = [args.whatsapp_target]
-
-    visualizer = Visualizer() if not args.no_display else None
-
-    # ── Open video source ─────────────────────────────────────────────────────
-    try:
-        source = VideoSource(args.source)
-        source.open()
-    except (FileNotFoundError, RuntimeError) as e:
-        log.error(str(e))
-        return 1
-
-    log.info(
-        f"Video: {source.frame_width}x{source.frame_height} @ {source.fps:.0f}fps  "
-        f"[{source.source_type}]"
+    processor = VideoProcessor(
+        detector=detector,
+        tracker=tracker,
+        accident_detector=accident_detector,
+        severity_classifier=severity,
+        incident_manager=incidents,
+        overlay=overlay,
     )
+    return processor, incidents
 
-    # ── Main loop ─────────────────────────────────────────────────────────────
-    frame_index = 0
-    measured_fps = 0.0
-    rate_limiter = MonotonicRateLimiter(max_fps=cfg.max_fps)
-    evidence_recording: set = set()  # incident_ids with active clip recording
 
-    print("\n[INFO] Pipeline running...\n")
+def run() -> None:
+    """Main application loop — displays menu and dispatches user choice."""
+    print(_BANNER)
 
-    try:
-        while _running and source.is_open():
-            ok, frame = source.read_latest() if source.is_live else source.read()
-            if not ok:
-                if source.source_type == "file":
-                    log.info("Video file ended.")
-                    break
-                log.warning("Frame read failed — retrying...")
-                time.sleep(0.05)
+    processor, incidents = build_pipeline()
+
+    _running = True
+
+    def _sigint_handler(sig, frame):
+        nonlocal _running
+        print("\n\n[INFO] Ctrl+C received — exiting.\n")
+        _running = False
+
+    signal.signal(signal.SIGINT, _sigint_handler)
+
+    while _running:
+        try:
+            choice = input(_MENU).strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+
+        if choice == "1":
+            # ── Live webcam detection ────────────────────────────────────
+            try:
+                camera_index = int(
+                    input("  Camera index [0]: ").strip() or "0"
+                )
+            except ValueError:
+                camera_index = 0
+            processor.run_webcam(camera_index=camera_index)
+
+        elif choice == "2":
+            # ── Video file detection ─────────────────────────────────────
+            print("\n[INFO] Opening file picker...")
+            file_path = pick_video_file()
+            if not file_path:
+                print("[INFO] No file selected — returning to menu.")
                 continue
+            processor.run_file(file_path=file_path)
 
-            # Enforce hard rate limit of max 15 processed inference FPS
-            allow_inference, reason = rate_limiter.should_process_frame(is_live=source.is_live)
-            if not allow_inference:
-                # Frame skipped to prevent queue buildup and latency accumulation
-                continue
+        elif choice == "3":
+            print("\n[INFO] Exiting NexGuard. Goodbye.\n")
+            break
 
-            frame_index += 1
-            measured_fps = rate_limiter.current_fps
+        else:
+            print("  [!] Invalid choice — enter 1, 2, or 3.\n")
 
-            # ── Detection ──────────────────────────────────────────────────────
-            detections = detector.detect(frame, frame_number=frame_index)
-            rate_limiter.record_inference_completion(detector.last_inference_time_ms / 1000.0)
-
-            # ── Tracking ──────────────────────────────────────────────────────
-            tracks = tracker.update(detections)
-
-            persons = [t for t in tracks if t.is_person]
-            vehicles = [t for t in tracks if t.is_vehicle]
-
-            # ── Incident lifecycle: resolve stale ──────────────────────────────
-            active_track_ids = [t.track_id for t in tracks]
-            incident_manager.resolve_stale_incidents(active_track_ids)
-            incident_manager.update_frame(frame_index)
-
-            # ── Accident detection ────────────────────────────────────────────
-            accident_event = accident_detector.update(tracks)
-
-            if accident_event:
-                # Person involvement analysis
-                person_involvements = analyze_person_involvement(
-                    persons, accident_event
-                )
-
-                # Get involved track objects
-                involved_tracks = [
-                    t for t in tracks if t.track_id in accident_event.track_ids
-                ]
-
-                # Severity classification
-                severity_result = severity_classifier.classify(
-                    event=accident_event,
-                    involved_tracks=involved_tracks,
-                    all_tracks=tracks,
-                    person_involvements=person_involvements,
-                    persistence_frames=accident_detector.consecutive_count,
-                )
-
-                # Create incident
-                incident = incident_manager.create_incident(
-                    event=accident_event,
-                    severity_result=severity_result,
-                    involved_tracks=involved_tracks,
-                    person_involvements=person_involvements,
-                )
-
-                print(f"\n\n{'─'*62}")
-                print(f"  [ACCIDENT] CONFIRMED — {incident.incident_id}")
-                print(f"  Severity   : {incident.severity.value}")
-                print(f"  Confidence : {incident.confidence:.0%}")
-                print(f"  Type       : {incident.event_type.value}")
-                print(f"  Tracks     : {incident.involved_tracks}")
-                print(f"  People     : {len(incident.involved_people)}")
-                if incident.severity_reasons:
-                    for r in incident.severity_reasons[:3]:
-                        print(f"              • {r}")
-                print(f"{'─'*62}\n")
-
-                # Evidence
-                if evidence_recorder:
-                    frame_path = evidence_recorder.save_frame(incident, frame, frame_index)
-                    if frame_path:
-                        incident_manager.add_evidence_frame(incident, frame_path)
-                    evidence_recorder.save_metadata(incident)
-
-                    if incident.incident_id not in evidence_recording:
-                        if evidence_recorder.start_clip(incident, frame, fps=measured_fps or 15.0):
-                            evidence_recording.add(incident.incident_id)
-
-                # Alert dispatch
-                if incident_manager.should_send_alert(incident):
-                    print(f"  [ALERT] Dispatching WhatsApp alert...")
-                    sent = alert_manager.dispatch(incident)
-                    if sent:
-                        incident_manager.mark_alert_sent(incident)
-                        print(f"  [ALERT] Queued for delivery to +{args.whatsapp_target}\n")
-
-            # ── Evidence clip frames for active incidents ──────────────────────
-            if evidence_recorder:
-                for inc in incident_manager.active_incidents:
-                    if inc.incident_id in evidence_recording:
-                        evidence_recorder.write_clip_frame(inc, frame)
-
-            # ── Resolve clips for resolved incidents ───────────────────────────
-            if evidence_recorder:
-                for iid in list(evidence_recording):
-                    resolved = all(
-                        i.incident_id != iid
-                        for i in incident_manager.active_incidents
-                    )
-                    if resolved:
-                        clip = evidence_recorder.finalize_clip(
-                            type("_FakeInc", (), {"incident_id": iid})()
-                        )
-                        evidence_recording.discard(iid)
-
-            # ── WhatsApp status (cheap polling every 5s) ───────────────────────
-            wa_status = "DISABLED"
-            if not args.no_whatsapp and frame_index % 150 == 1:
-                wa_status = notifier.get_status()
-            elif not args.no_whatsapp:
-                wa_status = getattr(notifier, "_last_wa_status", "LOADING")
-            notifier._last_wa_status = wa_status  # type: ignore[attr-defined]
-
-            # ── Terminal stats ────────────────────────────────────────────────
-            print_frame_stats(
-                frame_index,
-                measured_fps,
-                len(persons),
-                len(vehicles),
-                len(incident_manager.active_incidents),
-                skipped=rate_limiter.total_skipped,
-            )
-
-            # ── OpenCV display ────────────────────────────────────────────────
-            if visualizer:
-                annotated = visualizer.draw_frame(
-                    frame=frame,
-                    tracks=tracks,
-                    fps=measured_fps,
-                    frame_index=frame_index,
-                    active_incidents=incident_manager.active_incidents,
-                    whatsapp_status=wa_status,
-                )
-                key = visualizer.show(annotated)
-                if key in (ord("q"), ord("Q"), 27):  # q or ESC
-                    log.info("Quit key pressed — stopping.")
-                    break
-
-    except KeyboardInterrupt:
-        pass
-    finally:
-        # ── Cleanup ───────────────────────────────────────────────────────────
-        print("\n")
-        log.info("Shutting down pipeline...")
-
-        source.release()
-
-        if evidence_recorder:
-            evidence_recorder.finalize_all()
-
-        if visualizer:
-            visualizer.destroy()
-
-        alert_manager.shutdown()
-
-        # Session summary
-        print("\n" + "═" * 64)
-        print("  NEXGUARD SESSION SUMMARY")
-        print("═" * 64)
-        print(f"  Frames captured      : {rate_limiter.total_frames_seen}")
-        print(f"  Frames inferred      : {rate_limiter.total_inferences}")
-        print(f"  Frames skipped       : {rate_limiter.total_skipped}")
-        print(f"  Skip ratio           : {rate_limiter.skip_ratio:.1%}")
-        print(f"  Peak rolling FPS     : {min(measured_fps, 15.0):.1f} (Capped at MAX_FPS=15)")
-        print(f"  Total incidents      : {incident_manager.total_incidents}")
-        print(f"  Resolved incidents   : {len(incident_manager.incident_history)}")
-        print(f"  Active incidents     : {len(incident_manager.active_incidents)}")
-        print("═" * 64 + "\n")
-
-    return 0
+    # Session summary
+    total = incidents.total_incidents
+    if total > 0:
+        print(f"\n  Session summary: {total} incident(s) detected.\n")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    args = parse_args()
-    sys.exit(run(args))
+    run()
