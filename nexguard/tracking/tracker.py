@@ -1,22 +1,21 @@
 """
 NexGuard — Object Tracking Engine
 ===================================
-Provides a clean abstraction layer for multi-object tracking.
+Multi-object tracker using IoU-based greedy association.
 
 Architecture:
     ObjectTracker (public interface)
-        └── IoUTracker (default implementation — no external deps required)
+        └── _IoUTracker (internal implementation)
 
-The IoUTracker uses frame-to-frame IoU matching as its primary association
-strategy, augmented by centroid distance for low-overlap scenarios.
-This approach works reliably for surveillance video with a fixed camera
-and avoids complex dependencies while still supporting the accident
-detection pipeline's temporal requirements.
+The _IoUTracker uses frame-to-frame IoU matching as its primary
+association strategy, augmented by centroid distance for low-overlap
+scenarios. Works reliably for fixed-camera surveillance footage
+without requiring heavy external dependencies.
 
 Future extension:
-    To integrate ByteTrack or BOT-SORT, override ObjectTracker.update()
-    to call the Ultralytics built-in tracker and convert results into
-    Track objects. The rest of the pipeline remains unchanged.
+    To integrate ByteTrack or BOT-SORT, replace _IoUTracker.__init__
+    in ObjectTracker and convert the results to Track objects.
+    The accident detector and overlay layer remain unchanged.
 """
 
 from __future__ import annotations
@@ -29,42 +28,13 @@ import numpy as np
 from config import cfg
 from nexguard.models.schemas import Detection, Track
 from nexguard.utils.logging import get_logger
+from nexguard.utils.utils import bbox_iou, bbox_centroid_dist
 
-log = get_logger("nexguard.tracking")
-
-
-# ---------------------------------------------------------------------------
-# Geometry helpers
-# ---------------------------------------------------------------------------
-
-def _iou(
-    box1: Tuple[float, float, float, float],
-    box2: Tuple[float, float, float, float],
-) -> float:
-    """Intersection over Union for two (x1, y1, x2, y2) bounding boxes."""
-    x1 = max(box1[0], box2[0])
-    y1 = max(box1[1], box2[1])
-    x2 = min(box1[2], box2[2])
-    y2 = min(box1[3], box2[3])
-    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
-    area1 = max(0.0, (box1[2] - box1[0]) * (box1[3] - box1[1]))
-    area2 = max(0.0, (box2[2] - box2[0]) * (box2[3] - box2[1]))
-    union = area1 + area2 - inter
-    return inter / union if union > 0 else 0.0
-
-
-def _centroid_dist(
-    box1: Tuple[float, float, float, float],
-    box2: Tuple[float, float, float, float],
-) -> float:
-    """Euclidean distance between bounding-box centers."""
-    cx1, cy1 = (box1[0] + box1[2]) / 2, (box1[1] + box1[3]) / 2
-    cx2, cy2 = (box2[0] + box2[2]) / 2, (box2[1] + box2[3]) / 2
-    return math.hypot(cx2 - cx1, cy2 - cy1)
+log = get_logger("nexguard.tracker")
 
 
 # ---------------------------------------------------------------------------
-# IoU-based tracker implementation
+# Internal IoU tracker
 # ---------------------------------------------------------------------------
 
 class _IoUTracker:
@@ -72,8 +42,8 @@ class _IoUTracker:
     Greedy IoU-based multi-object tracker.
 
     Associates detections to existing tracks using IoU as the primary
-    similarity metric. Tracks persist for up to `max_lost_frames` frames
-    without a detection before being removed.
+    metric and centroid distance as the fallback. Tracks persist for up
+    to `max_lost_frames` without a detection match before removal.
     """
 
     def __init__(
@@ -95,53 +65,47 @@ class _IoUTracker:
         Associates new detections to existing tracks.
 
         Args:
-            detections: Detections from the current frame.
+            detections: Detection objects for the current frame.
 
         Returns:
-            List of currently active Track objects.
+            All currently active Track objects.
         """
-        # -- Mark all tracks as potentially lost this frame and extrapolate position
+        # Mark all tracks as one frame older / potentially lost
         for t in self._tracks.values():
             t.lost_frames += 1
             t.age += 1
-            if t.lost_frames > 1 and t.speed > 1.0:
+            # Linearly extrapolate position for short gaps
+            if t.lost_frames > 1 and t.speed > 0.5:
                 vx, vy = t.velocity
                 damping = 0.8 ** min(t.lost_frames, 5)
-                dx = vx * damping
-                dy = vy * damping
+                dx, dy = vx * damping, vy * damping
                 t.cx += dx
                 t.cy += dy
                 x1, y1, x2, y2 = t.bbox
                 t.bbox = (x1 + dx, y1 + dy, x2 + dx, y2 + dy)
 
-        matched_track_ids = set()
-        matched_det_indices = set()
+        matched_track_ids: set = set()
+        matched_det_indices: set = set()
 
         if self._tracks and detections:
             track_list = list(self._tracks.values())
-            n_tracks = len(track_list)
-            n_dets = len(detections)
+            n_t, n_d = len(track_list), len(detections)
 
-            # Build cost matrix: IoU takes priority (0.0 to 0.8), followed by centroid distance (0.8 to 0.99)
-            cost = np.full((n_tracks, n_dets), 2.0, dtype=np.float64)
+            # Build cost matrix: IoU range [0, 0.80], centroid range [0.80, 0.99]
+            cost = np.full((n_t, n_d), 2.0, dtype=np.float64)
             for i, track in enumerate(track_list):
                 for j, det in enumerate(detections):
-                    iou_val = _iou(track.bbox, det.bbox)
-                    dist = _centroid_dist(track.bbox, det.bbox)
+                    iou_val = bbox_iou(track.bbox, det.bbox)
+                    dist = bbox_centroid_dist(track.bbox, det.bbox)
                     if iou_val >= self._iou_thresh:
-                        # IoU cost between 0.0 (perfect overlap) and 0.80
                         cost[i, j] = (1.0 - iou_val) * 0.8
                     elif dist <= self._max_dist:
-                        # Centroid distance cost between 0.80 and 0.99
-                        normalized_dist = min(dist / max(self._max_dist, 1.0), 1.0)
-                        cost[i, j] = 0.80 + 0.19 * normalized_dist
+                        cost[i, j] = 0.80 + 0.19 * min(dist / max(self._max_dist, 1.0), 1.0)
 
-            # Greedy matching — lowest cost first
-            flat_order = np.argsort(cost.ravel())
-            for flat_idx in flat_order:
-                i = flat_idx // n_dets
-                j = flat_idx % n_dets
-                if i >= n_tracks or j >= len(detections):
+            # Greedy assignment: lowest cost first
+            for flat_idx in np.argsort(cost.ravel()):
+                i, j = divmod(int(flat_idx), n_d)
+                if i >= n_t or j >= n_d:
                     continue
                 if cost[i, j] >= 1.0:
                     break
@@ -151,12 +115,11 @@ class _IoUTracker:
                 if j in matched_det_indices:
                     continue
                 det = detections[j]
-                # Allow matching if classes are identical or both belong to the vehicle category
-                classes_match = (
+                # Class compatibility: same class, or both in the vehicle category
+                if not (
                     track.class_name == det.class_name
                     or (track.is_vehicle and det.class_name in cfg.vehicle_classes)
-                )
-                if not classes_match:
+                ):
                     continue
                 self._update_track(track, det)
                 matched_track_ids.add(track.track_id)
@@ -167,13 +130,8 @@ class _IoUTracker:
             if j not in matched_det_indices:
                 self._create_track(det)
 
-        # Remove stale tracks
-        stale = [
-            tid
-            for tid, t in self._tracks.items()
-            if t.lost_frames > self._max_lost
-        ]
-        for tid in stale:
+        # Prune stale tracks
+        for tid in [tid for tid, t in self._tracks.items() if t.lost_frames > self._max_lost]:
             del self._tracks[tid]
 
         return list(self._tracks.values())
@@ -204,11 +162,9 @@ class _IoUTracker:
     def _update_track(self, track: Track, det: Detection) -> None:
         new_cx = (det.bbox[0] + det.bbox[2]) / 2.0
         new_cy = (det.bbox[1] + det.bbox[3]) / 2.0
-
         vx = new_cx - track.cx
         vy = new_cy - track.cy
         speed = math.hypot(vx, vy)
-        heading = math.degrees(math.atan2(vy, vx))
 
         track.bbox = det.bbox
         track.class_name = det.class_name
@@ -218,7 +174,7 @@ class _IoUTracker:
         track.confidence = det.confidence
         track.velocity = (vx, vy)
         track.speed = speed
-        track.heading = heading
+        track.heading = math.degrees(math.atan2(vy, vx))
         track.cx = new_cx
         track.cy = new_cy
         track.lost_frames = 0
@@ -232,32 +188,22 @@ class _IoUTracker:
         if len(track.history) > self._history_len:
             track.history.pop(0)
 
-    @property
-    def tracks(self) -> Dict[int, Track]:
-        return self._tracks
-
-    def get_track(self, track_id: int) -> Optional[Track]:
-        return self._tracks.get(track_id)
-
     def reset(self) -> None:
         self._tracks.clear()
         self._next_id = 1
 
 
 # ---------------------------------------------------------------------------
-# Public tracker interface
+# Public interface
 # ---------------------------------------------------------------------------
 
 class ObjectTracker:
     """
     Public tracking interface used by the NexGuard pipeline.
 
-    Wraps the internal _IoUTracker and provides the API expected
-    by the accident detector and visualization layer.
-
-    To swap in a different tracking backend (ByteTrack, etc.),
-    replace the _impl initialization in __init__ and keep this
-    interface unchanged.
+    Wraps _IoUTracker and provides the API expected by the
+    AccidentDetector and overlay layer. Swap the internal
+    implementation here to upgrade to ByteTrack etc.
     """
 
     def __init__(
@@ -272,54 +218,28 @@ class ObjectTracker:
             history_length=history_length or cfg.track_history_length,
         )
         log.info(
-            f"Tracker initialized — max_lost={cfg.max_lost_frames} "
-            f"history={cfg.track_history_length}"
+            "Tracker ready — max_lost=%d history=%d",
+            cfg.max_lost_frames, cfg.track_history_length,
         )
 
     def update(self, detections: List[Detection]) -> List[Track]:
-        """
-        Processes new detections and returns the current set of active tracks.
-
-        Args:
-            detections: Detection objects from the current frame.
-
-        Returns:
-            All currently active Track objects.
-        """
+        """Processes detections and returns the current set of active tracks."""
         return self._impl.update(detections)
 
     def get_tracks(self) -> List[Track]:
-        """Returns all currently active tracks."""
-        return list(self._impl.tracks.values())
-
-    def get_track(self, track_id: int) -> Optional[Track]:
-        """Returns a specific track by ID, or None if not found."""
-        return self._impl.get_track(track_id)
+        return list(self._impl._tracks.values())
 
     def get_vehicles(self) -> List[Track]:
-        """Returns only vehicle tracks."""
-        return [t for t in self._impl.tracks.values() if t.is_vehicle]
+        return [t for t in self._impl._tracks.values() if t.is_vehicle]
 
     def get_persons(self) -> List[Track]:
-        """Returns only person tracks."""
-        return [t for t in self._impl.tracks.values() if t.is_person]
-
-    def remove_stale_tracks(self) -> None:
-        """Manually triggers removal of lost tracks (called automatically on update)."""
-        stale = [
-            tid
-            for tid, t in self._impl.tracks.items()
-            if t.lost_frames > self._impl._max_lost
-        ]
-        for tid in stale:
-            del self._impl._tracks[tid]
+        return [t for t in self._impl._tracks.values() if t.is_person]
 
     def reset(self) -> None:
-        """Resets the tracker, clearing all tracks."""
+        """Resets all tracking state (call when starting a new source)."""
         self._impl.reset()
         log.info("Tracker reset.")
 
     @property
     def active_count(self) -> int:
-        """Number of currently active tracks."""
-        return len(self._impl.tracks)
+        return len(self._impl._tracks)
