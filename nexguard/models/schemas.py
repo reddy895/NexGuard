@@ -1,15 +1,14 @@
 """
 NexGuard — Data Models and Schemas
 ====================================
-Defines structured data objects used across the NexGuard pipeline.
-These are plain Python dataclasses — no external ORM dependency required.
+Plain Python dataclasses used throughout the pipeline.
+No ORM or external framework dependency required.
 """
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,90 +18,43 @@ from typing import Any, Dict, List, Optional, Tuple
 # ---------------------------------------------------------------------------
 
 class Severity(str, Enum):
-    """Accident severity levels."""
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-    CRITICAL = "CRITICAL"
-
-
-class IncidentStatus(str, Enum):
-    """Lifecycle status of an incident."""
-    DETECTED = "DETECTED"
-    CONFIRMED = "CONFIRMED"
-    ALERT_SENT = "ALERT_SENT"
-    MONITORING = "MONITORING"
-    RESOLVED = "RESOLVED"
+    """Accident severity levels displayed in the video overlay."""
+    NO_ACCIDENT = "NO_ACCIDENT"
+    POSSIBLE    = "POSSIBLE"
+    LOW         = "LOW"
+    MEDIUM      = "MEDIUM"
+    HIGH        = "HIGH"
+    UNCERTAIN   = "UNCERTAIN"
 
 
 class EventType(str, Enum):
     """Type of accident / safety event detected."""
-    VEHICLE_COLLISION = "vehicle_collision"
-    VEHICLE_PEDESTRIAN = "vehicle_pedestrian"
-    PERSON_FALL = "person_fall"
-    SUDDEN_STOP = "sudden_stop"
-    NEAR_MISS = "near_miss"
+    VEHICLE_COLLISION    = "vehicle_collision"
+    VEHICLE_PEDESTRIAN   = "vehicle_pedestrian"
+    SUDDEN_STOP          = "sudden_stop"
+    POSSIBLE_ACCIDENT    = "possible_accident"
     CONFIRMED_MODEL_EVENT = "confirmed_model_event"
-    POSSIBLE_ACCIDENT = "possible_accident"
-    UNKNOWN = "unknown"
+    UNKNOWN              = "unknown"
+
+
+class DetectionMode(str, Enum):
+    """How the accident was detected."""
+    HEURISTIC     = "heuristic"
+    TRAINED_MODEL = "trained_model"
 
 
 class ModelType(str, Enum):
     """Classification of the loaded YOLO model."""
-    GENERIC_DETECTOR = "generic_detector"
+    GENERIC_DETECTOR  = "generic_detector"
     ACCIDENT_DETECTOR = "accident_detector"
-    HYBRID_DETECTOR = "hybrid_detector"
-    UNKNOWN = "unknown"
+    HYBRID_DETECTOR   = "hybrid_detector"
+    UNKNOWN           = "unknown"
 
 
-class DetectionMode(str, Enum):
-    """Accident detection operational mode."""
-    HEURISTIC = "heuristic"
-    TRAINED_MODEL = "trained_model"
-    DIAGNOSTIC = "diagnostic"
-
-
-class EventCertainty(str, Enum):
-    """Certainty level of detected safety event."""
-    CONFIRMED = "confirmed"
-    POSSIBLE = "possible"
-    UNKNOWN = "unknown"
-
-
-@dataclass
-class ModelDiagnosticInfo:
-    """Detailed startup diagnostic metadata for loaded model and dataset."""
-    model_path: str
-    device: str
-    model_type: ModelType
-    class_count: int
-    classes: Dict[int, str]
-    accident_classes_found: List[str]
-    inference_size: int
-    confidence_threshold: float
-    max_fps: int
-    dataset_status: str
-    dataset_path: Optional[str] = None
-    ready: bool = True
-    error_message: Optional[str] = None
-
-    def summary_lines(self) -> List[str]:
-        lines = [
-            f"Weights Path      : {self.model_path}",
-            f"Device            : {self.device.upper()}",
-            f"Model Type        : {self.model_type.value.upper()}",
-            f"Total Classes     : {self.class_count}",
-            f"Accident Classes  : {', '.join(self.accident_classes_found) if self.accident_classes_found else 'None (Generic Detector)'}",
-            f"Inference Size    : {self.inference_size}x{self.inference_size}",
-            f"Confidence Thresh : {self.confidence_threshold:.0%}",
-            f"Max FPS Limit     : {self.max_fps}",
-            f"Dataset Status    : {self.dataset_status}",
-        ]
-        if self.dataset_path:
-            lines.append(f"Dataset Path      : {self.dataset_path}")
-        if not self.ready and self.error_message:
-            lines.append(f"Model Error       : {self.error_message}")
-        return lines
+class IncidentStatus(str, Enum):
+    """Lifecycle status of an incident."""
+    ACTIVE   = "ACTIVE"
+    RESOLVED = "RESOLVED"
 
 
 # ---------------------------------------------------------------------------
@@ -112,13 +64,14 @@ class ModelDiagnosticInfo:
 @dataclass
 class Detection:
     """
-    Raw output from the object detector for a single detected object.
+    Raw output from the object detector for one detected object.
 
     Attributes:
-        bbox:       Bounding box as (x1, y1, x2, y2) in pixel coordinates.
-        class_name: COCO class label (e.g., 'car', 'person').
-        confidence: Detection confidence score in [0, 1].
+        bbox:       (x1, y1, x2, y2) in pixel coordinates.
+        class_name: COCO label (e.g., 'car', 'person').
+        confidence: Detection score in [0, 1].
         class_id:   Numeric class ID from the model.
+        is_accident: True when the class is an accident-specific label.
     """
     bbox: Tuple[float, float, float, float]
     class_name: str
@@ -128,12 +81,14 @@ class Detection:
 
     @property
     def center(self) -> Tuple[float, float]:
-        return ((self.bbox[0] + self.bbox[2]) / 2.0,
-                (self.bbox[1] + self.bbox[3]) / 2.0)
+        return (
+            (self.bbox[0] + self.bbox[2]) / 2.0,
+            (self.bbox[1] + self.bbox[3]) / 2.0,
+        )
 
     @property
     def area(self) -> float:
-        return (self.bbox[2] - self.bbox[0]) * (self.bbox[3] - self.bbox[1])
+        return max(0.0, (self.bbox[2] - self.bbox[0]) * (self.bbox[3] - self.bbox[1]))
 
 
 # ---------------------------------------------------------------------------
@@ -143,24 +98,25 @@ class Detection:
 @dataclass
 class Track:
     """
-    A tracked object maintained across multiple frames.
+    An object maintained across multiple frames by the tracker.
 
     Attributes:
-        track_id:       Unique tracking identifier.
-        bbox:           Current bounding box (x1, y1, x2, y2).
-        class_name:     Object class label.
-        confidence:     Latest detection confidence.
-        cx, cy:         Current center coordinates.
-        velocity:       (vx, vy) in pixels/frame.
-        speed:          Scalar speed magnitude in pixels/frame.
-        heading:        Direction of movement in degrees.
-        speed_history:  Recent speed samples for deceleration analysis.
-        history:        Recent center positions for trajectory drawing.
-        lost_frames:    Frames since last successful detection match.
-        age:            Total number of frames this track has been alive.
-        is_vehicle:     True if this track represents a vehicle.
-        is_person:      True if this track represents a person.
-        is_accident:    True if this track represents an accident/collision detection.
+        track_id:     Unique tracking ID assigned by the tracker.
+        bbox:         Current (x1, y1, x2, y2) bounding box.
+        class_name:   Object class label.
+        confidence:   Latest detection confidence.
+        cx, cy:       Current centroid.
+        velocity:     (vx, vy) in pixels/frame.
+        speed:        Scalar speed in pixels/frame.
+        heading:      Direction of movement in degrees.
+        speed_history: Recent speed samples (for deceleration analysis).
+        history:      Recent centroid positions (for trajectory drawing).
+        lost_frames:  Frames since last matched detection.
+        age:          Total frames this track has existed.
+        hits:         Number of frames matched by a detection.
+        is_vehicle:   True when class is a vehicle type.
+        is_person:    True when class is 'person'.
+        is_accident:  True when class is an accident-specific label.
     """
     track_id: int
     bbox: Tuple[float, float, float, float]
@@ -175,22 +131,37 @@ class Track:
     history: List[Tuple[float, float]] = field(default_factory=list)
     lost_frames: int = 0
     age: int = 0
+    hits: int = 1
     is_vehicle: bool = False
     is_person: bool = False
     is_accident: bool = False
 
-    hits: int = 1
+    # ── Computed properties ───────────────────────────────────────────────
 
     @property
     def stability_score(self) -> float:
-        """Ratio of successful detection matches to total lifespan."""
-        total = max(self.age, 1)
-        return min(self.hits / total, 1.0)
+        """Hit rate over the track's lifetime (0.0–1.0)."""
+        return min(self.hits / max(self.age, 1), 1.0)
 
     @property
     def is_stable(self) -> bool:
-        """A track is stable if it has at least 3 detections and >= 50% hit rate."""
+        """A track is stable once it has ≥3 detections and ≥40% hit rate."""
         return self.hits >= 3 and self.stability_score >= 0.40
+
+    @property
+    def avg_speed(self) -> float:
+        """Average speed over recent history."""
+        return sum(self.speed_history) / len(self.speed_history) if self.speed_history else 0.0
+
+    @property
+    def speed_drop_ratio(self) -> float:
+        """
+        Fractional speed drop relative to recent average.
+        Positive value means deceleration occurred.
+        """
+        if self.avg_speed < 0.001:
+            return 0.0
+        return max(0.0, (self.avg_speed - self.speed) / self.avg_speed)
 
     @property
     def acceleration(self) -> float:
@@ -199,40 +170,22 @@ class Track:
             return 0.0
         return self.speed_history[-1] - self.speed_history[-2]
 
-    @property
-    def avg_speed(self) -> float:
-        """Average speed over recent history."""
-        if not self.speed_history:
-            return 0.0
-        return sum(self.speed_history) / len(self.speed_history)
-
-    @property
-    def speed_drop_ratio(self) -> float:
-        """
-        Fraction by which speed has dropped relative to recent average.
-        Returns 0.0 if speed has not dropped.
-        """
-        if self.avg_speed < 0.001:
-            return 0.0
-        drop = (self.avg_speed - self.speed) / self.avg_speed
-        return max(0.0, drop)
-
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "track_id": self.track_id,
-            "class_name": self.class_name,
-            "confidence": round(self.confidence, 3),
-            "bbox": [round(v, 1) for v in self.bbox],
-            "center": (round(self.cx, 1), round(self.cy, 1)),
-            "speed": round(self.speed, 2),
-            "heading": round(self.heading, 1),
-            "lost_frames": self.lost_frames,
-            "age": self.age,
-            "hits": self.hits,
-            "stability_score": round(self.stability_score, 2),
-            "is_stable": self.is_stable,
-            "is_vehicle": self.is_vehicle,
-            "is_accident": self.is_accident,
+            "track_id":       self.track_id,
+            "class_name":     self.class_name,
+            "confidence":     round(self.confidence, 3),
+            "bbox":           [round(v, 1) for v in self.bbox],
+            "center":         (round(self.cx, 1), round(self.cy, 1)),
+            "speed":          round(self.speed, 2),
+            "heading":        round(self.heading, 1),
+            "lost_frames":    self.lost_frames,
+            "age":            self.age,
+            "hits":           self.hits,
+            "stability":      round(self.stability_score, 2),
+            "is_vehicle":     self.is_vehicle,
+            "is_person":      self.is_person,
+            "is_accident":    self.is_accident,
         }
 
 
@@ -243,10 +196,10 @@ class Track:
 @dataclass
 class AccidentEvent:
     """
-    Structured output from the accident detection engine.
+    Candidate accident event produced by AccidentDetector.
 
-    This is NOT a final incident — it is a candidate event requiring
-    temporal confirmation before escalation.
+    This is NOT a confirmed incident — it requires temporal confirmation
+    before being escalated to an Incident.
     """
     accident_detected: bool
     confidence: float
@@ -258,20 +211,18 @@ class AccidentEvent:
     frame_index: int = 0
     detection_mode: DetectionMode = DetectionMode.HEURISTIC
     is_model_confirmed: bool = False
-    certainty: EventCertainty = EventCertainty.POSSIBLE
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "accident_detected": self.accident_detected,
-            "confidence": round(self.confidence, 3),
-            "timestamp": self.timestamp,
-            "track_ids": self.track_ids,
-            "location": self.location,
-            "event_type": self.event_type.value,
-            "certainty": self.certainty.value,
-            "signals": self.signals,
-            "frame_index": self.frame_index,
-            "detection_mode": self.detection_mode.value,
+            "confidence":        round(self.confidence, 3),
+            "timestamp":         self.timestamp,
+            "track_ids":         self.track_ids,
+            "location":          self.location,
+            "event_type":        self.event_type.value,
+            "signals":           self.signals,
+            "frame_index":       self.frame_index,
+            "detection_mode":    self.detection_mode.value,
             "is_model_confirmed": self.is_model_confirmed,
         }
 
@@ -285,8 +236,8 @@ class SeverityResult:
     """
     Output from the severity classification engine.
 
-    severity_score is a continuous value in [0, 1]; severity is the
-    human-readable category derived from configurable thresholds.
+    severity_score is a continuous value in [0, 1].
+    severity is the human-readable category derived from config thresholds.
     """
     severity: Severity
     score: float
@@ -295,8 +246,8 @@ class SeverityResult:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "severity": self.severity.value,
-            "score": round(self.score, 3),
-            "reasons": self.reasons,
+            "score":    round(self.score, 3),
+            "reasons":  self.reasons,
         }
 
 
@@ -306,20 +257,20 @@ class SeverityResult:
 
 @dataclass
 class PersonInvolvement:
-    """Observed computer-vision evidence of a person near an accident zone."""
+    """Observable CV evidence of a person near an accident zone."""
     track_id: int
     distance_px: float
-    movement: str           # "stationary", "moving", "falling"
-    involvement_level: str  # "LOW", "MEDIUM", "HIGH"
-    last_known_position: Tuple[float, float]
+    movement: str           # "stationary" | "moving" | "decelerating"
+    involvement_level: str  # "LOW" | "MEDIUM" | "HIGH"
+    position: Tuple[float, float]
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "track_id": self.track_id,
-            "distance_px": round(self.distance_px, 1),
-            "movement": self.movement,
+            "track_id":         self.track_id,
+            "distance_px":      round(self.distance_px, 1),
+            "movement":         self.movement,
             "involvement_level": self.involvement_level,
-            "last_known_position": self.last_known_position,
+            "position":         self.position,
         }
 
 
@@ -331,17 +282,12 @@ class PersonInvolvement:
 class Incident:
     """
     Full lifecycle object for a confirmed accident incident.
-
-    Statuses:
-        DETECTED   → raw event identified
-        CONFIRMED  → temporal confirmation passed
-        ALERT_SENT → WhatsApp notification dispatched
-        MONITORING → ongoing monitoring after initial alert
-        RESOLVED   → no longer active
+    Created by IncidentManager when AccidentDetector confirms an event.
     """
-    incident_id: str = field(default_factory=lambda: f"INC-{str(uuid.uuid4())[:8].upper()}")
-    start_time: str = field(default_factory=lambda: datetime.now().isoformat())
-    end_time: Optional[str] = None
+    incident_id: str = field(
+        default_factory=lambda: f"NG-{str(uuid.uuid4())[:4].upper()}"
+    )
+    start_frame: int = 0
     event_type: EventType = EventType.UNKNOWN
     severity: Severity = Severity.LOW
     severity_score: float = 0.0
@@ -349,41 +295,44 @@ class Incident:
     confidence: float = 0.0
     involved_tracks: List[int] = field(default_factory=list)
     involved_people: List[PersonInvolvement] = field(default_factory=list)
-    involved_vehicles: List[int] = field(default_factory=list)
-    evidence_frames: List[str] = field(default_factory=list)
-    evidence_clip: Optional[str] = None
-    alert_status: str = "PENDING"
-    status: IncidentStatus = IncidentStatus.DETECTED
     location: Dict[str, float] = field(default_factory=dict)
     signals: List[str] = field(default_factory=list)
-    frame_index: int = 0
+    status: IncidentStatus = IncidentStatus.ACTIVE
 
     def resolve(self) -> None:
         self.status = IncidentStatus.RESOLVED
-        self.end_time = datetime.now().isoformat()
-
-    def mark_alert_sent(self) -> None:
-        self.status = IncidentStatus.ALERT_SENT
-        self.alert_status = "SENT"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "incident_id": self.incident_id,
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "event_type": self.event_type.value,
-            "severity": self.severity.value,
-            "severity_score": round(self.severity_score, 3),
+            "incident_id":     self.incident_id,
+            "start_frame":     self.start_frame,
+            "event_type":      self.event_type.value,
+            "severity":        self.severity.value,
+            "severity_score":  round(self.severity_score, 3),
             "severity_reasons": self.severity_reasons,
-            "confidence": round(self.confidence, 3),
+            "confidence":      round(self.confidence, 3),
             "involved_tracks": self.involved_tracks,
-            "involved_people": [p.to_dict() for p in self.involved_people],
-            "involved_vehicles": self.involved_vehicles,
-            "evidence_frames": self.evidence_frames,
-            "evidence_clip": self.evidence_clip,
-            "alert_status": self.alert_status,
-            "status": self.status.value,
-            "location": self.location,
-            "signals": self.signals,
-            "frame_index": self.frame_index,
+            "location":        self.location,
+            "signals":         self.signals,
+            "status":          self.status.value,
         }
+
+
+# ---------------------------------------------------------------------------
+# Model diagnostic info
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ModelDiagnosticInfo:
+    """Startup metadata for the loaded YOLO model."""
+    model_path: str
+    device: str
+    model_type: ModelType
+    class_count: int
+    classes: Dict[int, str]
+    accident_classes_found: List[str]
+    inference_size: int
+    confidence_threshold: float
+    dataset_status: str
+    ready: bool = True
+    error_message: Optional[str] = None
