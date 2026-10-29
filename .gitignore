@@ -48,9 +48,16 @@ test_clips/*.mkv
 test_clips/*.mov
 !test_clips/.gitkeep
 
-# Datasets — large data
+# Datasets & training caches — large data
 datasets/accident/images/
 datasets/accident/labels/
+datasets/train/
+datasets/val/
+datasets/test/
+datasets/*.cache
+*.cache
+models/runs/
+runs/
 
 # WhatsApp / Node.js legacy
 whatsapp_bot/node_modules/
