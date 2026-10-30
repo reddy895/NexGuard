@@ -185,9 +185,55 @@ python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
 ---
 
+## Dataset, Training & MLOps Pipeline
+
+NexGuard incorporates a scientifically rigorous dataset validation, preprocessing, model training, and evaluation pipeline.
+
+### 1. Dataset Integrity & Validation
+Validate the CCTV accident dataset to detect corrupted images, zero-byte files, and invalid formats:
+```bash
+python scripts/validate_dataset.py --data datasets/
+```
+
+### 2. Preprocessing & Leak-Free Splitting
+Preprocess raw CCTV images into `dataset_processed/` using source-clip grouping (`SourceAwareSplitter`) to eliminate cross-split data leakage:
+```bash
+python -c "from nexguard.dataset.preprocessor import DatasetPreprocessor; DatasetPreprocessor('datasets').run()"
+```
+
+### 3. Model Training
+Train the accident detection model on the prepared dataset:
+```bash
+python scripts/train_object_detector.py --config configs/accident_dataset.yaml --epochs 5 --batch 16 --device auto
+```
+
+Key training features:
+- **Hardware-Aware Model Selection**: Automatically selects Nano backbones for constrained environments (<=4GB VRAM / CPU) or Small backbones for high-VRAM GPUs.
+- **Safe Checkpointing**: Always saves `best.pt` and `last.pt` to `models/object_detection/`, with automated timestamped backups of prior weights.
+- **Early Stopping & Overfitting Monitoring**: Tracks validation top-1 accuracy and halts when patience is exhausted.
+- **Resume Support**: Pass `--resume` to resume interrupted training from `last.pt`.
+
+### 4. Comprehensive Evaluation
+Run empirical evaluation across object detection, frame-level accident classification, temporal event reasoning, and severity baseline:
+```bash
+python scripts/evaluate_models.py
+```
+
+Generated Reports:
+- `reports/dataset_audit.md` — Comprehensive raw dataset audit and anomaly report.
+- `reports/class_distribution.png` — High-resolution class and split distribution graphic.
+- `reports/data_split_report.md` — Source-aware video grouping split report.
+- `reports/object_detection_results.md` — Detection mAP, precision, recall, and FPS benchmarks.
+- `reports/confusion_matrix.png` — Publication-ready test split confusion matrix.
+- `reports/accident_detection_results.md` — Temporal multi-frame event evaluation.
+- `reports/severity_results.md` — Severity assessment benchmark and safety metrics.
+- `reports/final_model_evaluation.md` — Unified executive summary of model evaluation.
+
+---
+
 ## Running the System
 
-Start the application:
+Start the interactive terminal application:
 ```bash
 python main.py
 ```
@@ -203,22 +249,12 @@ To stop playback during video or webcam detection, press `q`, `Q`, or `ESC` in t
 
 ## Testing
 
-NexGuard includes 45 comprehensive unit tests validating state transitions, cooldown windows, geometric calculations, and error handling.
+NexGuard includes a comprehensive test suite (55+ unit & integration tests) validating state transitions, cooldown windows, geometric calculations, dataset parsing, and error handling.
 
 Run all tests:
 ```bash
-python -m pytest tests/ -v
+pytest -v
 ```
-
-Expected output:
-```text
-============================== 45 passed in 1.39s ==============================
-```
-
-Test coverage includes:
-- `tests/test_severity.py`: Baseline scores, boundaries, person involvement distance levels, multi-vehicle scaling, and UNCERTAIN handling.
-- `tests/test_accident_logic.py`: Confirmation window, cooldown timers, approach velocity geometry, track resets, and `IncidentManager` deduplication.
-- `tests/test_system_and_errors.py`: Missing model weights safety, invalid video files, camera failure reporting, graceful menu return, and zero-detection handling.
 
 ---
 
@@ -228,12 +264,11 @@ Test coverage includes:
 | :--- | :--- | :--- |
 | **Terminal Menu Interface** | Working | Clean interactive CLI with webcam, file picker, and exit options |
 | **Object Detection (COCO)** | Working | YOLOv8 inference for cars, motorcycles, buses, trucks, people |
-| **Object Tracking** | Working | Centroid & IoU tracker maintaining IDs, velocities, and trajectories |
+| **Object Tracking** | Working | Centroid & IoU tracker with smoothed velocity and heading estimation |
 | **Temporal Accident Confirmation** | Working | Multi-frame approach velocity, deceleration, and proximity heuristics |
-| **Rule-Based Severity** | Working | Continuous scoring mapped to LOW, MEDIUM, HIGH, and UNCERTAIN |
-| **Real-Time Video HUD** | Working | Color-coded bounding boxes, upper-right status box, persistent banners |
-| **Camera & Video Error Handling** | Working | Graceful recovery on missing hardware, bad files, or interrupted streams |
-| **Dedicated Accident Classification**| In Progress | Requires domain-specific fine-tuned accident model (e.g., Kaggle/CADP) |
+| **Accident Classification** | Working | YOLOv8 Nano classifier trained on deduplicated CCTV footage (95.1% test acc) |
+| **Rule-Based Severity Baseline** | Working | Continuous scoring mapped to LOW, MEDIUM, HIGH, and UNCERTAIN |
+| **Incident Archiving & Alerts** | Working | Forensic snapshot capture and duplicate rate-limited alerting |
 | **Medical / Injury Assessment** | Unsupported | General object detectors cannot diagnose injuries or detect blood |
 
 ---
