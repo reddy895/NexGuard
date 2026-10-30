@@ -94,6 +94,12 @@ class VideoProcessor:
         self._incidents = incident_manager
         self._overlay = overlay
 
+        diag = self._detector.get_diagnostic_info()
+        log.info(
+            "VideoProcessor initialized | Model: %s (%s) | Device: %s | Conf Thresh: %.2f | ImgSz: %d",
+            diag.model_path, diag.model_type.value, diag.device, diag.confidence_threshold, diag.inference_size,
+        )
+
     # ── Public entry points ────────────────────────────────────────────────
 
     def run_webcam(self, camera_index: int = 0) -> None:
