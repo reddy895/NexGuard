@@ -48,14 +48,17 @@ class ObjectDetector:
         conf: Optional[float] = None,
         iou: Optional[float] = None,
         imgsz: Optional[int] = None,
+        classifier_path: Optional[str] = None,
     ) -> None:
         self.model_path = model_path or cfg.model_path
         self.device = device or cfg.resolve_device()
         self.conf = conf if conf is not None else cfg.confidence_threshold
         self.iou = iou if iou is not None else cfg.iou_threshold
         self.imgsz = imgsz or cfg.inference_size
+        self.classifier_path = classifier_path or str(Path("models/object_detection/best.pt"))
 
         self.model = None
+        self.classifier_model = None
         self.model_ready: bool = False
         self._class_names: dict = {}
         self.diagnostic_info: Optional[ModelDiagnosticInfo] = None
@@ -63,6 +66,7 @@ class ObjectDetector:
         self._lock = threading.Lock()
 
         self._load_model()
+        self._load_classifier()
 
     # ── Model loading ──────────────────────────────────────────────────────
 
@@ -157,6 +161,47 @@ class ObjectDetector:
             ready=False,
             error_message=message,
         )
+
+    def _load_classifier(self) -> None:
+        """Loads optional trained accident classifier weights if present."""
+        cp = Path(self.classifier_path)
+        if not cp.exists() and Path("models/accident_classifier.pt").exists():
+            cp = Path("models/accident_classifier.pt")
+
+        if cp.exists():
+            try:
+                from ultralytics import YOLO
+                self.classifier_model = YOLO(str(cp))
+                log.info("Accident classifier loaded successfully from: %s", cp)
+            except Exception as exc:
+                log.warning("Could not load accident classifier from %s: %s", cp, exc)
+                self.classifier_model = None
+
+    def classify_accident(self, frame: np.ndarray) -> Optional[Tuple[float, str]]:
+        """
+        Runs frame classification using trained accident model weights.
+        Returns: (confidence, class_name) or None if classifier is not loaded.
+        """
+        if self.classifier_model is None:
+            return None
+        processed = self._preprocess(frame)
+        if processed is None:
+            return None
+        try:
+            res = self.classifier_model(processed, verbose=False, device=self.device, imgsz=224)[0]
+            top1_idx = int(res.probs.top1)
+            name = res.names.get(top1_idx, f"class_{top1_idx}")
+            # Find accident class probability
+            acc_idx = 1
+            for k, v in res.names.items():
+                if "accident" in v.lower() and "non" not in v.lower():
+                    acc_idx = k
+                    break
+            acc_prob = float(res.probs.data[acc_idx].cpu().numpy())
+            return (acc_prob, name)
+        except Exception as exc:
+            log.warning("Accident classification inference error: %s", exc)
+            return None
 
     # ── Inference ──────────────────────────────────────────────────────────
 
