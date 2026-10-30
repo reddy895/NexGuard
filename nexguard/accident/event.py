@@ -145,6 +145,20 @@ class IncidentManager:
 
         return resolved
 
+    resolve_stale = resolve_stale_incidents
+
+    def get_or_create(self, event: AccidentEvent, frame: Optional[np.ndarray] = None) -> Tuple[Incident, bool]:
+        """Convenience method returning (incident, is_new)."""
+        existing = self._find_active_match(event.track_ids, event.location)
+        if existing:
+            existing.confidence = max(existing.confidence, event.confidence)
+            existing.involved_tracks = list(set(existing.involved_tracks + event.track_ids))
+            return existing, False
+
+        sev_res = SeverityResult(severity=Severity.LOW, score=event.confidence, reasons=event.signals)
+        inc = self.create_incident(event, sev_res, [], [])
+        return inc, True
+
     # ── Properties ─────────────────────────────────────────────────────────
 
     @property
