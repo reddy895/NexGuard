@@ -172,6 +172,10 @@ class _IoUTracker:
         track.is_person = det.class_name in cfg.person_classes
         track.is_accident = det.is_accident or (det.class_name in cfg.accident_classes)
         track.confidence = det.confidence
+        if track.hits > 1 and track.velocity != (0.0, 0.0):
+            vx = 0.70 * vx + 0.30 * track.velocity[0]
+            vy = 0.70 * vy + 0.30 * track.velocity[1]
+            speed = math.hypot(vx, vy)
         track.velocity = (vx, vy)
         track.speed = speed
         track.heading = math.degrees(math.atan2(vy, vx))
