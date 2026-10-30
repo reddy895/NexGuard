@@ -1,0 +1,38 @@
+# =============================================================================
+# NexGuard — Model Training Configuration
+# =============================================================================
+# Hyperparameters and hardware execution policies for accident detection.
+
+# Model Architecture
+model:
+  architecture: "yolov8n-cls.pt"
+  pretrained: true
+  task: "classify"
+
+# Hardware & Compute Policy
+compute:
+  device: "auto"        # 'auto' selects cuda if available, otherwise cpu
+  mixed_precision: true # Automatic mixed precision (AMP) when CUDA is active
+  num_workers: 2        # DataLoader worker threads
+
+# Training Hyperparameters
+training:
+  epochs: 10
+  batch_size: 16        # Conservative batch size for 4GB VRAM or CPU stability
+  image_size: 224       # Resolution tailored for classification backbones
+  optimizer: "AdamW"
+  lr0: 0.001            # Initial learning rate
+  lrf: 0.01             # Final learning rate factor (cosine decay)
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 1.0
+  seed: 42
+
+# Checkpointing & Early Stopping
+checkpointing:
+  save_best: true
+  save_last: true
+  early_stopping:
+    enabled: true
+    patience: 5         # Stop after 5 epochs without validation metric improvement
+    metric: "metrics/accuracy_top1"
