@@ -75,3 +75,26 @@ def test_annotation_parser_validates_bounding_boxes():
     )
     errs = invalid_box.validate()
     assert len(errs) >= 3
+
+def test_deduplicator_finds_duplicates_and_leakage(tmp_path: Path):
+    from nexguard.dataset.deduplicator import DatasetDeduplicator
+
+    train_acc = tmp_path / "train" / "Accident"
+    val_non_acc = tmp_path / "val" / "Non Accident"
+    train_acc.mkdir(parents=True)
+    val_non_acc.mkdir(parents=True)
+
+    img = Image.new("RGB", (64, 64), color=(100, 150, 200))
+    p1 = train_acc / "img1.jpg"
+    p2 = val_non_acc / "img2.jpg"
+    img.save(p1)
+    img.save(p2)  # Exact identical image in different split and different class!
+
+    dedup = DatasetDeduplicator(tmp_path)
+    dups = dedup.find_duplicates()
+
+    assert len(dups) == 1
+    group = dups[0]
+    assert group.has_split_leakage is True
+    assert group.has_label_conflict is True
+    assert len(group.files) == 2
