@@ -33,12 +33,13 @@ from nexguard.models.schemas import (
     SeverityResult,
     Track,
 )
+from nexguard.accident.severity_interface import SeverityClassifierBase
 from nexguard.utils.logging import get_logger
 
 log = get_logger("nexguard.severity")
 
 
-class SeverityClassifier:
+class SeverityClassifier(SeverityClassifierBase):
     """
     Scores a confirmed accident event and classifies it into a severity level.
 
@@ -60,6 +61,14 @@ class SeverityClassifier:
     _W_PERSON      = 0.20
     _W_PERSISTENCE = 0.10
     _W_DENSITY     = 0.10
+
+    @property
+    def is_trained_model(self) -> bool:
+        """
+        Explicitly identifies this engine as a rule-based heuristic baseline,
+        as the CCTV dataset contains no human-annotated severity labels.
+        """
+        return False
 
     def classify(
         self,
