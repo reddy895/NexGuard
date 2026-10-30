@@ -1,0 +1,33 @@
+# =============================================================================
+# NexGuard — CCTV Accident Dataset Configuration
+# =============================================================================
+# Defines dataset directories, splits, class taxonomy, and preprocessing parameters.
+
+# Dataset directory root (relative to project root or absolute)
+path: dataset_processed
+
+# Split subdirectories
+train: train
+val: val
+test: test
+
+# Class definition
+names:
+  0: Non Accident
+  1: Accident
+
+# Task configuration
+task: classify
+nc: 2
+
+# Image metadata
+img_size: 224
+channels: 3
+source_aware_split: true
+deduplicate_identical: true
+
+# Documentation & Lineage
+dataset_name: CCTV-Accident-Detection-Processed
+version: 1.0.0
+license: CC-BY-4.0
+description: "Deduplicated, source-split CCTV road accident dataset preventing video frame leakage."
