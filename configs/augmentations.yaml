@@ -1,0 +1,24 @@
+# =============================================================================
+# NexGuard — Training Augmentation Policy
+# =============================================================================
+# Applied ONLY to training split to improve generalization while preserving
+# physical and evidentiary integrity of vehicle collision dynamics.
+
+# Spatial augmentations
+fliplr: 0.50          # Horizontal flip probability (road geometry invariant)
+flipud: 0.00          # Vertical flip DISABLED (vehicles do not drive on sky)
+degrees: 5.0          # Mild camera tilt (-5 to +5 deg)
+translate: 0.08       # Mild camera pan (-8% to +8%)
+scale: 0.10           # Scale variation (0.9 to 1.1x)
+shear: 2.0            # Slight perspective distortion
+
+# Photometric / Weather / Sensor augmentations
+hsv_h: 0.015          # Subtle hue variation (traffic light & paint consistency)
+hsv_s: 0.40           # Saturation variation (sunny vs overcast)
+hsv_v: 0.30           # Exposure/brightness variation (daytime vs dusk)
+motion_blur_prob: 0.15 # Motion blur for rapid vehicle movement
+sensor_noise_prob: 0.10# Low-light CCTV grain / sensor noise
+
+# Safety & Ground Truth Preservation Rules
+augment_eval_data: false   # NEVER augment validation or test data
+distort_collision_zones: false # Preserve vehicle deformation evidence
