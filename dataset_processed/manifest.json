@@ -1,0 +1,20 @@
+{
+  "source_dir": "datasets",
+  "output_dir": "dataset_processed",
+  "splits": {
+    "train": {
+      "Accident": 309,
+      "Non Accident": 363
+    },
+    "val": {
+      "Accident": 67,
+      "Non Accident": 79
+    },
+    "test": {
+      "Accident": 81,
+      "Non Accident": 61
+    }
+  },
+  "total_processed": 960,
+  "conflicts_excluded": 5
+}

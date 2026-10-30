@@ -55,6 +55,11 @@ datasets/train/
 datasets/val/
 datasets/test/
 datasets/*.cache
+dataset_processed/train/
+dataset_processed/val/
+dataset_processed/test/
+/dataset/
+/dataset
 *.cache
 models/runs/
 runs/
